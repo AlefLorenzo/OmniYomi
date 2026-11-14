@@ -1,0 +1,264 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.all.mangaball",
+  "name": "Manga Ball",
+  "version": "1.6.1",
+  "lang": "ar",
+  "hasDex": true,
+  "apkUrl": "https://github.com/FelipeGFA/extensoes/releases/download/f72a85e-0/tachiyomi-all.mangaball-v1.6.1.apk",
+  "repoUrl": "https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb",
+  "sources": [
+    {
+      "id": "5763592680824441822",
+      "name": "Manga Ball",
+      "lang": "ar",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "8745608410209813897",
+      "name": "Manga Ball",
+      "lang": "bg",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "215476983335793342",
+      "name": "Manga Ball",
+      "lang": "bn",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "9084885867242726177",
+      "name": "Manga Ball",
+      "lang": "ca",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "7169636154814402936",
+      "name": "Manga Ball",
+      "lang": "cs",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3523848676838462162",
+      "name": "Manga Ball",
+      "lang": "da",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "1966498126669070992",
+      "name": "Manga Ball",
+      "lang": "de",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "5586454452949519981",
+      "name": "Manga Ball",
+      "lang": "el",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "1448906013733277368",
+      "name": "Manga Ball",
+      "lang": "en",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "2111498029521981284",
+      "name": "Manga Ball",
+      "lang": "es",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "5041529786391483797",
+      "name": "Manga Ball",
+      "lang": "fa",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "5403969342368317365",
+      "name": "Manga Ball",
+      "lang": "fi",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "4804845656972446863",
+      "name": "Manga Ball",
+      "lang": "fr",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "2439898977058946574",
+      "name": "Manga Ball",
+      "lang": "he",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3325308670866777803",
+      "name": "Manga Ball",
+      "lang": "hi",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "34408487862399605",
+      "name": "Manga Ball",
+      "lang": "hu",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "2825403839562372201",
+      "name": "Manga Ball",
+      "lang": "id",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3556430745170330371",
+      "name": "Manga Ball",
+      "lang": "it",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "7073775592097997189",
+      "name": "Manga Ball",
+      "lang": "is",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3534664804437641640",
+      "name": "Manga Ball",
+      "lang": "ja",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "6595061459576629533",
+      "name": "Manga Ball",
+      "lang": "ko",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "8772354233322170397",
+      "name": "Manga Ball",
+      "lang": "kn",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "4574102257618973368",
+      "name": "Manga Ball",
+      "lang": "ml",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "8221555371810647857",
+      "name": "Manga Ball",
+      "lang": "ms",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "615885128031081811",
+      "name": "Manga Ball",
+      "lang": "ne",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "5484157652338210397",
+      "name": "Manga Ball",
+      "lang": "nl",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3777339391626194173",
+      "name": "Manga Ball",
+      "lang": "no",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "5768573366655393544",
+      "name": "Manga Ball",
+      "lang": "pl",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "35546023386335815",
+      "name": "Manga Ball",
+      "lang": "pt-BR",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "3357030332736127152",
+      "name": "Manga Ball",
+      "lang": "ro",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "7203647082681930008",
+      "name": "Manga Ball",
+      "lang": "ru",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "8131533018433339643",
+      "name": "Manga Ball",
+      "lang": "sk",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "1966275254426034210",
+      "name": "Manga Ball",
+      "lang": "sl",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "7985165645382797194",
+      "name": "Manga Ball",
+      "lang": "sq",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "4654428466578189678",
+      "name": "Manga Ball",
+      "lang": "sr",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "4940984854904039527",
+      "name": "Manga Ball",
+      "lang": "sv",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "1133911619191823359",
+      "name": "Manga Ball",
+      "lang": "ta",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "6778483817278233868",
+      "name": "Manga Ball",
+      "lang": "th",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "8648105733020574748",
+      "name": "Manga Ball",
+      "lang": "tr",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "6193642890428176406",
+      "name": "Manga Ball",
+      "lang": "uk",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "117702463567484484",
+      "name": "Manga Ball",
+      "lang": "vi",
+      "baseUrl": "https://mangaball.net"
+    },
+    {
+      "id": "1555837267200004397",
+      "name": "Manga Ball",
+      "lang": "zh",
+      "baseUrl": "https://mangaball.net"
+    }
+  ],
+  "extractedAt": 1794635488318
+}

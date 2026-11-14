@@ -63,8 +63,13 @@ export function ReaderPage() {
 
       // Try to load chapter info + sibling chapters
       const parts = id.split(':');
-      if (parts.length >= 2) {
-        const mangaId = `${parts[0]}:${parts[1]}`;
+      let mangaId = '';
+      if (id.startsWith('apk:') && parts.length >= 4) {
+        mangaId = parts.slice(0, parts.length - 1).join(':');
+      } else if (parts.length >= 2) {
+        mangaId = `${parts[0]}:${parts[1]}`;
+      }
+      if (mangaId) {
         const [chList] = await Promise.all([api.getChapters(mangaId).catch(() => [])]);
         setChapters(chList || []);
         const thisChapter = chList?.find((c: any) => c.id === id);

@@ -157,6 +157,9 @@ export class MangaDexSource extends BaseSource {
 
       for (const item of data) {
         const attr = item.attributes;
+        // Skip external-only chapters with no hosted pages
+        if (attr.externalUrl && (!attr.pages || attr.pages === 0)) continue;
+
         const chNum = parseFloat(attr.chapter) || 0;
         const title = attr.title ? `Cap. ${attr.chapter || '—'} - ${attr.title}` : `Capítulo ${attr.chapter || 'Especial'}`;
 
@@ -191,11 +194,13 @@ export class MangaDexSource extends BaseSource {
   async getPageList(sourceChapterId: string): Promise<PageImage[]> {
     const res = await this.client.get(`/at-home/server/${sourceChapterId}`);
     const { baseUrl, chapter } = res.data;
-    const { hash, data } = chapter;
+    const { hash, data, dataSaver } = chapter;
+    const fileList = data && data.length > 0 ? data : (dataSaver || []);
+    const folder = data && data.length > 0 ? 'data' : 'data-saver';
 
-    return data.map((filename: string, index: number) => ({
+    return fileList.map((filename: string, index: number) => ({
       index: index + 1,
-      url: `${baseUrl}/data/${hash}/${filename}`,
+      url: `${baseUrl}/${folder}/${hash}/${filename}`,
       headers: {
         'Referer': 'https://mangadex.org',
       },

@@ -4,6 +4,7 @@ import path from 'path';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { PageImage } from '../types/index.js';
+import { parseChapterId } from '../utils/idHelper.js';
 
 export const chaptersRouter = Router();
 
@@ -41,16 +42,13 @@ chaptersRouter.get('/:id/pages', async (req, res) => {
     }
   }
 
-  // 2. Fetch pages online from source
-  const parts = id.split(':');
-  if (parts.length < 3) {
+  // 2. Safely parse chapter ID into sourceId, mangaId, and sourceChapterId
+  const { sourceId, sourceChapterId } = parseChapterId(id);
+  if (!sourceId || !sourceChapterId) {
     return res.status(400).json({ error: 'Formato inválido de ID de capítulo' });
   }
 
-  const sourceId = parts[0];
-  const sourceChapterId = parts[2];
   const source = extensionManager.getSource(sourceId);
-
   if (!source) {
     return res.status(404).json({ error: `Fonte "${sourceId}" não encontrada` });
   }
@@ -58,13 +56,15 @@ chaptersRouter.get('/:id/pages', async (req, res) => {
   try {
     const rawPages = await source.getPageList(sourceChapterId, chapter?.url || undefined);
     const pages: PageImage[] = rawPages.map((p, idx) => {
-      // Route through local image proxy to prevent CORS and referer blocks
-      const referer = p.headers?.Referer || source.baseUrl;
-      const proxyUrl = `/api/proxy/image?url=${encodeURIComponent(p.url)}&referer=${encodeURIComponent(referer)}`;
-
+      let pageUrl = p.url;
+      // If image is remote http and needs proxy, format with proxy URL
+      if (pageUrl.startsWith('http://') || pageUrl.startsWith('https://')) {
+        const refererParam = p.headers?.Referer ? `&referer=${encodeURIComponent(p.headers.Referer)}` : '';
+        pageUrl = `/api/proxy/image?url=${encodeURIComponent(p.url)}${refererParam}`;
+      }
       return {
         index: p.index || idx + 1,
-        url: proxyUrl,
+        url: pageUrl,
         headers: p.headers,
       };
     });
@@ -76,30 +76,29 @@ chaptersRouter.get('/:id/pages', async (req, res) => {
       pages,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Erro ao carregar páginas do capítulo' });
+    res.status(500).json({ error: `Erro ao carregar páginas: ${err.message}` });
   }
 });
 
+// Update reading progress
 chaptersRouter.post('/:id/progress', (req, res) => {
   const { id } = req.params;
   const { page, totalPages, isRead } = req.body;
 
-  if (typeof page !== 'number') {
-    return res.status(400).json({ error: 'Parâmetro "page" deve ser um número' });
+  try {
+    const chapter = db.getChapterById(id);
+    if (!chapter) {
+      return res.status(404).json({ error: 'Capítulo não encontrado' });
+    }
+
+    const updated = db.updateChapterProgress(id, {
+      lastPageRead: page,
+      totalPages: totalPages || chapter.totalPages,
+      isRead: Boolean(isRead),
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-
-  db.updateChapterProgress(id, page, totalPages || 0, Boolean(isRead));
-  res.json({ success: true, chapterId: id, page, isRead: Boolean(isRead) });
 });
-
-chaptersRouter.post('/mark-read', (req, res) => {
-  const { chapterIds, isRead } = req.body;
-
-  if (!Array.isArray(chapterIds)) {
-    return res.status(400).json({ error: '"chapterIds" deve ser um array' });
-  }
-
-  db.markChaptersRead(chapterIds, Boolean(isRead));
-  res.json({ success: true, count: chapterIds.length, isRead: Boolean(isRead) });
-});
-

@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RefreshCw, ToggleLeft, ToggleRight, Trash2,
-  Package, Plus, Search, Globe, Download, HardDrive, ExternalLink
+  Package, Plus, Search, Globe, Download, HardDrive, ExternalLink, BookOpen
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Button, Loader, Empty, Input, Modal } from '../components/ui/index';
@@ -12,6 +13,7 @@ import { cn, formatRelativeDate } from '../lib/utils';
 type Tab = 'installed' | 'store' | 'repos';
 
 export function SourcesPage() {
+  const navigate = useNavigate();
   const { show } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('installed');
 
@@ -256,6 +258,15 @@ export function SourcesPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigate(`/catalog?source=${encodeURIComponent(src.id)}`)}
+                  className="flex items-center gap-1 text-xs bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white transition-all px-2.5 py-1.5 rounded cursor-pointer font-medium"
+                  title="Explorar obras desta fonte"
+                >
+                  <BookOpen size={13} />
+                  <span>Explorar</span>
+                </button>
+
                 <button
                   onClick={() => handleHealthCheck(src.id)}
                   disabled={healthChecking.has(src.id)}

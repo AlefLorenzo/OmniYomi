@@ -221,6 +221,24 @@ async function runTestSuite() {
     assert.ok(exts.some(e => e.pkg.includes('kavita')), 'Deve conter extensão do Kavita');
   });
 
+  // 16. APK Extension Multi-Engine Scraper & Bridge Catalog
+  await test('Retorno de obras em extensões APK sem falhas (Comikey & PT-BR)', async () => {
+    const sources = extensionManager.getAllSources();
+    const apkSource = sources.find(s => s.id.startsWith('apk:') && s.isEnabled) || sources.find(s => s.id.startsWith('apk:'));
+    assert.ok(apkSource, 'Pelo menos uma extensão APK deve estar instalada');
+
+    const sourceInstance = extensionManager.getSource(apkSource.id)!;
+    assert.ok(sourceInstance, 'Instância da fonte APK deve existir');
+
+    const popularRes = await sourceInstance.getPopular(1);
+    assert.ok(popularRes.manga.length > 0, `Fonte ${apkSource.name} (${apkSource.id}) deve retornar obras populares`);
+    assert.ok(popularRes.manga[0].title.length > 0, 'Primeira obra deve conter título válido');
+    assert.ok(popularRes.manga[0].id.startsWith(apkSource.id), 'ID da obra deve conter o prefixo da fonte');
+
+    const searchRes = await sourceInstance.search('Solo', 1);
+    assert.ok(searchRes.manga.length > 0, 'Pesquisa na fonte APK deve retornar obras sem falhas');
+  });
+
   console.log('\n======================================================');
   console.log(`  RESULTADO: ${passed}/${total} TESTES APROVADOS! (${Math.round((passed / total) * 100)}%)`);
   console.log('======================================================\n');

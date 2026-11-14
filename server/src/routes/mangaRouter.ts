@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { libraryManager } from '../services/LibraryManager.js';
+import { parseMangaId } from '../utils/idHelper.js';
 
 export const mangaRouter = Router();
 
@@ -10,11 +11,9 @@ mangaRouter.get('/:id', async (req, res) => {
   let manga = db.getMangaById(id);
 
   if (!manga) {
-    // If not in local DB, extract sourceId and sourceMangaId
-    const parts = id.split(':');
-    if (parts.length >= 2) {
-      const sourceId = parts[0];
-      const sourceMangaId = parts.slice(1).join(':');
+    // If not in local DB, extract sourceId and sourceMangaId safely
+    const { sourceId, sourceMangaId } = parseMangaId(id);
+    if (sourceId && sourceMangaId) {
       const source = extensionManager.getSource(sourceId);
 
       if (source) {
@@ -77,9 +76,7 @@ mangaRouter.post('/:id/library', async (req, res) => {
       // Ensure manga exists in DB before adding to library
       let manga = db.getMangaById(id);
       if (!manga) {
-        const parts = id.split(':');
-        const sourceId = parts[0];
-        const sourceMangaId = parts.slice(1).join(':');
+        const { sourceId, sourceMangaId } = parseMangaId(id);
         const source = extensionManager.getSource(sourceId);
         if (source) {
           const details = await source.getMangaDetails(sourceMangaId);
