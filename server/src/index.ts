@@ -69,7 +69,7 @@ setupWebSocket(server);
 
 // Start listening
 const settings = db.getSettings();
-const PORT = process.env.PORT || settings.port || 4567;
+const PORT = Number(process.env.PORT || settings.port || 4567);
 
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`====================================================`);

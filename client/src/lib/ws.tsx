@@ -23,6 +23,11 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     if (apiBase) {
       url = apiBase.replace(/^http/, 'ws') + '/ws';
     } else {
+      // Se estiver no aplicativo Android e não tiver servidor configurado, não tenta conectar
+      if (typeof window !== 'undefined' && (window.location.protocol === 'capacitor:' || Boolean((window as any).Capacitor?.isNativePlatform?.()))) {
+        setConnected(false);
+        return;
+      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       url = `${protocol}//${window.location.hostname}:4567/ws`;
     }

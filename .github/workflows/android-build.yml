@@ -35,8 +35,9 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Aceitar licenças do Android SDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Determinar versão
         id: get_version
@@ -48,10 +49,10 @@ jobs:
           fi
 
       - name: Instalar dependências raiz
-        run: npm ci
+        run: npm install
 
       - name: Instalar dependências client
-        run: cd client && npm ci
+        run: cd client && npm install
 
       - name: Build do cliente React SPA
         run: cd client && npm run build

@@ -19,7 +19,11 @@ export function HomePage() {
   }, []);
 
   async function loadAll() {
-    setLoading(true);
+    // Timeout de segurança: se a rede estiver lenta, não prende o usuário na tela de carregamento
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1200);
+
     try {
       const [history, library, popular] = await Promise.all([
         api.getHistory(6).catch(() => []),
@@ -42,6 +46,7 @@ export function HomePage() {
     } catch {
       // safe fallback
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }

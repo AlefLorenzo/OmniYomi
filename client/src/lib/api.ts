@@ -6,16 +6,32 @@ export function getApiBaseUrl(): string {
   // Detect Capacitor or Android WebView
   const isCapacitor =
     window.location.protocol === 'capacitor:' ||
+    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
     (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173') ||
-    (window.location.protocol === 'https:' && window.location.hostname === 'localhost') ||
-    Boolean((window as any).Capacitor?.isNativePlatform?.());
+    (window.location.protocol === 'https:' && window.location.hostname === 'localhost');
 
   if (isCapacitor) {
-    // Porta 8888 funciona como proxy unificado HTTP e WebSocket para :4567
-    return 'http://192.168.0.111:8888';
+    // No Capacitor/Android, retorna vazio por padrão — o usuário configura o IP manualmente
+    // A loja de extensões usa GitHub diretamente, sem precisar do servidor
+    return '';
   }
 
   return '';
+}
+
+export function isCapacitorApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.location.protocol === 'capacitor:' ||
+    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173')
+  );
+}
+
+export function isServerConfigured(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('omniyomi_server_url');
+  return Boolean(stored && stored.trim().length > 0);
 }
 
 export function setApiBaseUrl(url: string) {
@@ -36,8 +52,159 @@ export function resolveApiUrl(pathOrUrl: string): string {
   return `${base}${cleanPath}`;
 }
 
+// Funções auxiliares para persistência local no dispositivo móvel (modo standalone / offline)
+function getLocalLibrary(): any[] {
+  try {
+    return JSON.parse(localStorage.getItem('omniyomi_local_library') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLibrary(list: any[]) {
+  try {
+    localStorage.setItem('omniyomi_local_library', JSON.stringify(list));
+  } catch {}
+}
+
+function getLocalHistory(): any[] {
+  try {
+    return JSON.parse(localStorage.getItem('omniyomi_local_history') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalHistory(list: any[]) {
+  try {
+    localStorage.setItem('omniyomi_local_history', JSON.stringify(list));
+  } catch {}
+}
+
+// Suporte direto à API do MangaDex sem depender de servidor local
+async function fetchMangaDexPopular(page = 1) {
+  const limit = 20;
+  const offset = (page - 1) * limit;
+  const url = `https://api.mangadex.org/manga?limit=${limit}&offset=${offset}&order[followedCount]=desc&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`MangaDex API erro ${res.status}`);
+  const data = await res.json();
+  const mangas = (data.data || []).map((m: any) => {
+    const title = m.attributes?.title?.['pt-br'] || m.attributes?.title?.en || Object.values(m.attributes?.title || {})[0] || 'Sem título';
+    const desc = m.attributes?.description?.['pt-br'] || m.attributes?.description?.en || '';
+    const coverRel = m.relationships?.find((r: any) => r.type === 'cover_art');
+    const fileName = coverRel?.attributes?.fileName;
+    const coverUrl = fileName ? `https://uploads.mangadex.org/covers/${m.id}/${fileName}.256.jpg` : '';
+    return {
+      id: m.id,
+      sourceId: 'mangadex',
+      title,
+      coverUrl,
+      description: desc,
+      status: m.attributes?.status || 'ongoing',
+      tags: (m.attributes?.tags || []).map((t: any) => t.attributes?.name?.en).filter(Boolean),
+    };
+  });
+  return { manga: mangas, hasNextPage: (data.total || 0) > offset + limit };
+}
+
+async function searchMangaDex(q: string, page = 1) {
+  const limit = 20;
+  const offset = (page - 1) * limit;
+  const url = `https://api.mangadex.org/manga?title=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`MangaDex search erro ${res.status}`);
+  const data = await res.json();
+  const mangas = (data.data || []).map((m: any) => {
+    const title = m.attributes?.title?.['pt-br'] || m.attributes?.title?.en || Object.values(m.attributes?.title || {})[0] || 'Sem título';
+    const desc = m.attributes?.description?.['pt-br'] || m.attributes?.description?.en || '';
+    const coverRel = m.relationships?.find((r: any) => r.type === 'cover_art');
+    const fileName = coverRel?.attributes?.fileName;
+    const coverUrl = fileName ? `https://uploads.mangadex.org/covers/${m.id}/${fileName}.256.jpg` : '';
+    return {
+      id: m.id,
+      sourceId: 'mangadex',
+      title,
+      coverUrl,
+      description: desc,
+      status: m.attributes?.status || 'ongoing',
+      tags: (m.attributes?.tags || []).map((t: any) => t.attributes?.name?.en).filter(Boolean),
+    };
+  });
+  return { manga: mangas, hasNextPage: (data.total || 0) > offset + limit };
+}
+
+async function getMangaDexDetails(mangaId: string) {
+  const url = `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`MangaDex manga erro ${res.status}`);
+  const data = await res.json();
+  const m = data.data;
+  const title = m.attributes?.title?.['pt-br'] || m.attributes?.title?.en || Object.values(m.attributes?.title || {})[0] || 'Sem título';
+  const desc = m.attributes?.description?.['pt-br'] || m.attributes?.description?.en || '';
+  const coverRel = m.relationships?.find((r: any) => r.type === 'cover_art');
+  const fileName = coverRel?.attributes?.fileName;
+  const authorRel = m.relationships?.find((r: any) => r.type === 'author');
+  const coverUrl = fileName ? `https://uploads.mangadex.org/covers/${m.id}/${fileName}.512.jpg` : '';
+  const localLib = getLocalLibrary();
+  const inLib = localLib.some((item: any) => item.id === mangaId);
+
+  return {
+    id: m.id,
+    sourceId: 'mangadex',
+    sourceMangaId: m.id,
+    title,
+    coverUrl,
+    description: desc,
+    author: authorRel?.attributes?.name || '',
+    artist: '',
+    status: m.attributes?.status || 'ongoing',
+    tags: (m.attributes?.tags || []).map((t: any) => t.attributes?.name?.en).filter(Boolean),
+    inLibrary: inLib,
+    isFavorite: inLib,
+  };
+}
+
+async function getMangaDexChapters(mangaId: string) {
+  const url = `https://api.mangadex.org/manga/${mangaId}/feed?translatedLanguage[]=pt-br&translatedLanguage[]=en&order[chapter]=desc&limit=100`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.data || []).map((c: any, index: number) => ({
+    id: c.id,
+    mangaId,
+    sourceChapterId: c.id,
+    chapterNumber: parseFloat(c.attributes?.chapter || `${index + 1}`),
+    name: c.attributes?.title ? `Capítulo ${c.attributes.chapter}: ${c.attributes.title}` : `Capítulo ${c.attributes?.chapter || index + 1}`,
+    language: c.attributes?.translatedLanguage || 'pt-br',
+    scanlator: '',
+    releasedAt: c.attributes?.publishAt || new Date().toISOString(),
+    isRead: false,
+    isDownloaded: false,
+  }));
+}
+
+async function getMangaDexPages(chapterId: string) {
+  const url = `https://api.mangadex.org/at-home/server/${chapterId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`MangaDex páginas erro ${res.status}`);
+  const data = await res.json();
+  const baseUrl = data.baseUrl;
+  const hash = data.chapter.hash;
+  const pages = (data.chapter.data || []).map((file: string, idx: number) => ({
+    pageNumber: idx + 1,
+    imageUrl: `${baseUrl}/data/${hash}/${file}`,
+  }));
+  return { chapterId, pages };
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const base = getApiBaseUrl();
+  // Se for aplicativo nativo (Capacitor/Android) e não houver base configurada, não faz chamada relativa para não receber index.html
+  if (!base && isCapacitorApp()) {
+    throw new Error('Servidor local não configurado');
+  }
+
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const fullUrl = `${base}/api${cleanPath}`;
 
@@ -103,66 +270,128 @@ export const api = {
       ];
     }
   },
-  getPopular: (sourceId: string, page = 1) => request<any>(`/sources/${sourceId}/popular?page=${page}`),
-  getLatest: (sourceId: string, page = 1) => request<any>(`/sources/${sourceId}/latest?page=${page}`),
-  searchSource: (sourceId: string, q: string, page = 1) => request<any>(`/sources/${sourceId}/search?q=${encodeURIComponent(q)}&page=${page}`),
+  getPopular: async (sourceId: string, page = 1) => {
+    try {
+      return await request<any>(`/sources/${sourceId}/popular?page=${page}`);
+    } catch {
+      return fetchMangaDexPopular(page);
+    }
+  },
+  getLatest: async (sourceId: string, page = 1) => {
+    try {
+      return await request<any>(`/sources/${sourceId}/latest?page=${page}`);
+    } catch {
+      return fetchMangaDexPopular(page);
+    }
+  },
+  searchSource: async (sourceId: string, q: string, page = 1) => {
+    try {
+      return await request<any>(`/sources/${sourceId}/search?q=${encodeURIComponent(q)}&page=${page}`);
+    } catch {
+      return searchMangaDex(q, page);
+    }
+  },
   checkSourceHealth: (id: string) => request<any>(`/sources/${id}/health`),
   toggleSource: (id: string, enabled: boolean) => request<any>(`/sources/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
-  globalSearch: (q: string) => request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`),
-  deduplicatedSearch: (q: string) => request<any>(`/sources/search/deduplicated?q=${encodeURIComponent(q)}`),
+  globalSearch: async (q: string) => {
+    try {
+      return await request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`);
+    } catch {
+      const res = await searchMangaDex(q, 1);
+      return { query: q, results: [{ sourceId: 'mangadex', sourceName: 'MangaDex', manga: res.manga }] };
+    }
+  },
+  deduplicatedSearch: async (q: string) => {
+    try {
+      return await request<any>(`/sources/search/deduplicated?q=${encodeURIComponent(q)}`);
+    } catch {
+      const res = await searchMangaDex(q, 1);
+      return { query: q, total: res.manga.length, entries: res.manga.map((m: any) => ({ canonical: m, sources: [m] })) };
+    }
+  },
   getFlareSolverrStatus: () => request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status'),
 
   // Extensions & Repos
   getAvailableExtensions: () => request<any[]>('/extensions/available'),
   uninstallExtension: (id: string) => request<any>(`/extensions/${id}`, { method: 'DELETE' }),
-  getRepos: () => request<any[]>('/extensions/repos'),
+  getRepos: async () => {
+    try {
+      return await request<any[]>('/extensions/repos');
+    } catch {
+      return [
+        {
+          name: 'Keiyoushi (Oficial Tachiyomi / Mihon)',
+          url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json',
+          enabled: true,
+          lastSynced: Date.now(),
+        },
+      ];
+    }
+  },
   addRepo: (url: string, name?: string) => request<any>('/extensions/repos', { method: 'POST', body: JSON.stringify({ url, name }) }),
   deleteRepo: (url: string) => request<any>('/extensions/repos', { method: 'DELETE', body: JSON.stringify({ url }) }),
   toggleRepo: (url: string, enabled: boolean) => request<any>('/extensions/repos/toggle', { method: 'POST', body: JSON.stringify({ url, enabled }) }),
   getStoreExtensions: async (q?: string, lang?: string) => {
+    // Função auxiliar para buscar do GitHub diretamente (sem servidor)
+    async function fetchFromGitHub() {
+      const URLS = [
+        'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json',
+        'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.min.json',
+      ];
+      for (const url of URLS) {
+        try {
+          const ghRes = await fetch(url, { cache: 'default' });
+          if (ghRes.ok) {
+            const list = await ghRes.json();
+            let filtered = Array.isArray(list) ? list : [];
+            if (lang && lang !== 'all') {
+              filtered = filtered.filter((e: any) => e.lang === lang || e.lang === 'all');
+            }
+            if (q && q.trim()) {
+              const query = q.toLowerCase();
+              filtered = filtered.filter((e: any) =>
+                e.name?.toLowerCase().includes(query) || e.pkg?.toLowerCase().includes(query)
+              );
+            }
+            const mapped = filtered.map((e: any) => ({
+              name: e.name,
+              pkg: e.pkg,
+              version: e.version,
+              lang: e.lang,
+              isNsfw: Boolean(e.isNsfw || e.nsfw),
+              iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${e.pkg}.png`,
+              apkUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/${e.apk}`,
+              isInstalled: false,
+              repoName: 'Keiyoushi (GitHub)',
+              sources: (e.sources || []).map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                baseUrl: s.baseUrl,
+                lang: s.lang,
+              })),
+            }));
+            return { total: mapped.length, extensions: mapped };
+          }
+        } catch {}
+      }
+      throw new Error('Não foi possível carregar extensões do GitHub. Verifique sua conexão.');
+    }
+
+    const base = getApiBaseUrl();
+    if (!base) {
+      // Sem servidor configurado → vai direto ao GitHub
+      return fetchFromGitHub();
+    }
+
+    // Servidor configurado → tenta servidor, cai no GitHub se falhar
     const params = new URLSearchParams();
     if (q) params.append('q', q);
     if (lang && lang !== 'all') params.append('lang', lang);
     const qs = params.toString();
     try {
       return await request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);
-    } catch (err) {
-      // Fallback direto via GitHub para carregar a loja mesmo sem o PC
-      try {
-        const ghRes = await fetch('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json');
-        if (ghRes.ok) {
-          const list = await ghRes.json();
-          let filtered = Array.isArray(list) ? list : [];
-          if (lang && lang !== 'all') {
-            filtered = filtered.filter((e: any) => e.lang === lang || e.lang === 'all');
-          }
-          if (q && q.trim()) {
-            const query = q.toLowerCase();
-            filtered = filtered.filter((e: any) =>
-              e.name?.toLowerCase().includes(query) || e.pkg?.toLowerCase().includes(query)
-            );
-          }
-          const mapped = filtered.map((e: any) => ({
-            name: e.name,
-            pkg: e.pkg,
-            version: e.version,
-            lang: e.lang,
-            isNsfw: Boolean(e.isNsfw || e.nsfw),
-            iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${e.pkg}.png`,
-            apkUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/${e.apk}`,
-            isInstalled: false,
-            repoName: 'Keiyoushi (GitHub)',
-            sources: (e.sources || []).map((s: any) => ({
-              id: s.id,
-              name: s.name,
-              baseUrl: s.baseUrl,
-              lang: s.lang,
-            })),
-          }));
-          return { total: mapped.length, extensions: mapped };
-        }
-      } catch {}
-      throw err;
+    } catch {
+      return fetchFromGitHub();
     }
   },
   extractExtension: (pkg: string, apkUrl: string, repoUrl?: string) =>
@@ -170,26 +399,97 @@ export const api = {
   uninstallExtracted: (pkg: string) => request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' }),
 
   // Manga
-  getManga: (id: string) => request<any>(`/manga/${id}`),
-  getChapters: (mangaId: string) => request<any[]>(`/manga/${mangaId}/chapters`),
+  getManga: async (id: string) => {
+    try {
+      return await request<any>(`/manga/${id}`);
+    } catch {
+      return getMangaDexDetails(id);
+    }
+  },
+  getChapters: async (mangaId: string) => {
+    try {
+      return await request<any[]>(`/manga/${mangaId}/chapters`);
+    } catch {
+      return getMangaDexChapters(mangaId);
+    }
+  },
   refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
-  setInLibrary: (id: string, inLibrary: boolean, categoryId?: string) =>
-    request<any>(`/manga/${id}/library`, { method: 'POST', body: JSON.stringify({ inLibrary, categoryId }) }),
-  toggleFavorite: (id: string, isFavorite: boolean) =>
-    request<any>(`/manga/${id}/favorite`, { method: 'POST', body: JSON.stringify({ isFavorite }) }),
+  setInLibrary: async (id: string, inLibrary: boolean, categoryId?: string) => {
+    try {
+      return await request<any>(`/manga/${id}/library`, { method: 'POST', body: JSON.stringify({ inLibrary, categoryId }) });
+    } catch {
+      let lib = getLocalLibrary();
+      if (inLibrary) {
+        if (!lib.some((m: any) => m.id === id)) {
+          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
+          lib.push({ ...details, inLibrary: true, isFavorite: true, categoryId });
+        }
+      } else {
+        lib = lib.filter((m: any) => m.id !== id);
+      }
+      saveLocalLibrary(lib);
+      return { inLibrary, isFavorite: inLibrary };
+    }
+  },
+  toggleFavorite: async (id: string, isFavorite: boolean) => {
+    try {
+      return await request<any>(`/manga/${id}/favorite`, { method: 'POST', body: JSON.stringify({ isFavorite }) });
+    } catch {
+      let lib = getLocalLibrary();
+      if (isFavorite) {
+        if (!lib.some((m: any) => m.id === id)) {
+          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
+          lib.push({ ...details, inLibrary: true, isFavorite: true });
+        }
+      } else {
+        lib = lib.filter((m: any) => m.id !== id);
+      }
+      saveLocalLibrary(lib);
+      return { isFavorite, inLibrary: isFavorite };
+    }
+  },
   setCategory: (id: string, categoryId: string) =>
     request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
 
   // Chapters
-  getPages: (chapterId: string) => request<any>(`/chapters/${chapterId}/pages`),
-  updateProgress: (chapterId: string, page: number, totalPages: number, isRead: boolean) =>
-    request<any>(`/chapters/${chapterId}/progress`, { method: 'POST', body: JSON.stringify({ page, totalPages, isRead }) }),
+  getPages: async (chapterId: string) => {
+    try {
+      return await request<any>(`/chapters/${chapterId}/pages`);
+    } catch {
+      return getMangaDexPages(chapterId);
+    }
+  },
+  updateProgress: async (chapterId: string, page: number, totalPages: number, isRead: boolean) => {
+    try {
+      return await request<any>(`/chapters/${chapterId}/progress`, { method: 'POST', body: JSON.stringify({ page, totalPages, isRead }) });
+    } catch {
+      const hist = getLocalHistory();
+      const existing = hist.findIndex((h: any) => h.chapterId === chapterId);
+      const entry = { chapterId, page, totalPages, isRead, readAt: new Date().toISOString() };
+      if (existing >= 0) hist[existing] = entry;
+      else hist.unshift(entry);
+      saveLocalHistory(hist.slice(0, 100));
+      return { success: true };
+    }
+  },
   markChaptersRead: (chapterIds: string[], isRead: boolean) =>
     request<any>('/chapters/mark-read', { method: 'POST', body: JSON.stringify({ chapterIds, isRead }) }),
 
   // Downloads
-  getDownloads: () => request<any[]>('/downloads'),
-  getStorageUsage: () => request<{ totalBytes: number; formatted: string }>('/downloads/storage'),
+  getDownloads: async () => {
+    try {
+      return await request<any[]>('/downloads');
+    } catch {
+      return [];
+    }
+  },
+  getStorageUsage: async () => {
+    try {
+      return await request<{ totalBytes: number; formatted: string }>('/downloads/storage');
+    } catch {
+      return { totalBytes: 0, formatted: '0 MB' };
+    }
+  },
   enqueueDownload: (chapterId: string) => request<any>('/downloads/enqueue', { method: 'POST', body: JSON.stringify({ chapterId }) }),
   enqueueBatch: (chapterIds: string[]) => request<any>('/downloads/enqueue-batch', { method: 'POST', body: JSON.stringify({ chapterIds }) }),
   cancelDownload: (chapterId: string, deleteFiles = false) => request<any>(`/downloads/${chapterId}?deleteFiles=${deleteFiles}`, { method: 'DELETE' }),
@@ -199,20 +499,47 @@ export const api = {
   scanLocal: () => request<any>('/downloads/scan-local', { method: 'POST' }),
 
   // Library
-  getLibrary: (category?: string, search?: string) => {
-    const params = new URLSearchParams();
-    if (category && category !== 'all') params.append('category', category);
-    if (search) params.append('search', search);
-    const qs = params.toString();
-    return request<any[]>(`/library${qs ? `?${qs}` : ''}`);
+  getLibrary: async (category?: string, search?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (category && category !== 'all') params.append('category', category);
+      if (search) params.append('search', search);
+      const qs = params.toString();
+      return await request<any[]>(`/library${qs ? `?${qs}` : ''}`);
+    } catch {
+      let lib = getLocalLibrary();
+      if (search) {
+        lib = lib.filter((m: any) => m.title?.toLowerCase().includes(search.toLowerCase()));
+      }
+      return lib;
+    }
   },
-  getCategories: () => request<any[]>('/library/categories'),
+  getCategories: async () => {
+    try {
+      return await request<any[]>('/library/categories');
+    } catch {
+      return [];
+    }
+  },
   createCategory: (name: string) => request<any>('/library/categories', { method: 'POST', body: JSON.stringify({ name }) }),
   deleteCategory: (id: string) => request<any>(`/library/categories/${id}`, { method: 'DELETE' }),
 
   // History
-  getHistory: (limit = 50) => request<any[]>(`/history?limit=${limit}`),
-  clearHistory: () => request<any>('/history', { method: 'DELETE' }),
+  getHistory: async (limit = 50) => {
+    try {
+      return await request<any[]>(`/history?limit=${limit}`);
+    } catch {
+      return getLocalHistory().slice(0, limit);
+    }
+  },
+  clearHistory: async () => {
+    try {
+      return await request<any>('/history', { method: 'DELETE' });
+    } catch {
+      saveLocalHistory([]);
+      return { success: true };
+    }
+  },
 
   // Settings
   getSettings: () => request<any>('/settings'),

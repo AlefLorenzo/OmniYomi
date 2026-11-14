@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle } from 'lucide-react';
+import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle } from 'lucide-react';
 import { api, getApiBaseUrl, setApiBaseUrl } from '../lib/api';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
+import { checkForUpdate, CURRENT_VERSION, type ReleaseInfo } from '../lib/updater';
 
 export function SettingsPage() {
   const { show } = useToast();
@@ -16,6 +17,11 @@ export function SettingsPage() {
   const [serverUrl, setServerUrlState] = useState<string>(getApiBaseUrl() || 'http://192.168.0.111:8888');
   const [testingServer, setTestingServer] = useState(false);
   const [serverConnected, setServerConnected] = useState<boolean | null>(null);
+
+  // GitHub Updates
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<ReleaseInfo | null>(null);
+  const [updateChecked, setUpdateChecked] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -81,6 +87,24 @@ export function SettingsPage() {
       show(`Erro ao testar FlareSolverr: ${e.message}`, 'error');
     } finally {
       setTestingFlare(false);
+    }
+  };
+
+  const handleCheckGitHubUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateChecked(true);
+    try {
+      const release = await checkForUpdate();
+      setUpdateAvailable(release);
+      if (release) {
+        show(`Nova versão v${release.version} disponível no GitHub!`, 'info');
+      } else {
+        show('OmniYomi está atualizado na versão mais recente!', 'success');
+      }
+    } catch (e: any) {
+      show('Erro ao verificar atualizações no GitHub.', 'error');
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -302,6 +326,62 @@ export function SettingsPage() {
         {flareStatus && (
           <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-gray-300">
             <span className="font-semibold text-purple-400">Diagnóstico:</span> {flareStatus}
+          </div>
+        )}
+      </section>
+
+      {/* Atualizações do Aplicativo via GitHub */}
+      <section className="bg-[#1a1e29] border border-purple-500/30 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-purple-600/20 text-purple-400 flex items-center justify-center">
+              <ArrowUpCircle size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-200">Atualizações do OmniYomi</h2>
+              <p className="text-xs text-gray-400">Versão instalada: <span className="text-purple-300 font-mono font-bold">v{CURRENT_VERSION}</span></p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={handleCheckGitHubUpdate} loading={checkingUpdate}>
+            <RefreshCw size={13} /> Verificar Atualizações
+          </Button>
+        </div>
+
+        {updateChecked && (
+          <div>
+            {updateAvailable ? (
+              <div className="bg-purple-950/40 border border-purple-600/50 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                      Nova versão disponível: v{updateAvailable.version}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Publicada em {new Date(updateAvailable.publishedAt).toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  <a
+                    href={updateAvailable.downloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold transition-colors shadow-lg"
+                  >
+                    <Download size={14} /> Baixar APK
+                  </a>
+                </div>
+                {updateAvailable.releaseNotes && (
+                  <div className="text-xs text-gray-300 bg-[#121620] p-3 rounded-lg border border-[#2a3040] whitespace-pre-wrap max-h-36 overflow-y-auto">
+                    {updateAvailable.releaseNotes}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-green-400 flex items-center gap-2">
+                <CheckCircle size={15} />
+                <span>O aplicativo já está atualizado na versão mais recente (v{CURRENT_VERSION}).</span>
+              </div>
+            )}
           </div>
         )}
       </section>

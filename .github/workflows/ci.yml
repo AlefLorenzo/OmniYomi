@@ -22,10 +22,10 @@ jobs:
           cache: 'npm'
 
       - name: Instalar dependências raiz
-        run: npm ci
+        run: npm install
 
       - name: Instalar dependências client
-        run: cd client && npm ci
+        run: cd client && npm install
 
       - name: Verificar compilação TypeScript (Server)
         run: npx tsc --noEmit

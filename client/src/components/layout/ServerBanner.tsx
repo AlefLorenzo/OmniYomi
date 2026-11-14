@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { WifiOff, Server, Check, ArrowRight, X } from 'lucide-react';
 import { useWs } from '../../lib/ws';
-import { getApiBaseUrl, setApiBaseUrl, api } from '../../lib/api';
+import { getApiBaseUrl, setApiBaseUrl, api, isServerConfigured } from '../../lib/api';
 
 export function ServerBanner() {
   const { connected } = useWs();
   const [showConfig, setShowConfig] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(true); // Não incomodar por padrão em modo mobile
   const [ip, setIp] = useState(getApiBaseUrl() || 'http://192.168.0.111:8888');
   const [testing, setTesting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Só exibe se o usuário tiver configurado explicitamente um servidor e ele estiver offline
+  const shouldShow = isServerConfigured() && !connected && !dismissed;
 
   // If connected, hide the config modal
   useEffect(() => {
@@ -33,30 +36,30 @@ export function ServerBanner() {
     }
   };
 
-  if ((connected || dismissed) && !showConfig) return null;
+  if (!shouldShow && !showConfig) return null;
 
   return (
     <>
-      {/* Top Banner when disconnected */}
-      {!connected && !dismissed && (
-        <div className="bg-amber-950/80 border-b border-amber-600/40 px-3 py-2 text-xs flex items-center justify-between text-amber-200">
+      {/* Top Banner when disconnected and configured */}
+      {shouldShow && (
+        <div className="bg-purple-950/90 border-b border-purple-600/40 px-3 py-1.5 text-xs flex items-center justify-between text-purple-200">
           <div className="flex items-center gap-2 truncate">
-            <WifiOff size={14} className="text-amber-400 shrink-0" />
-            <span className="truncate">Modo Offline / Desconectado ({getApiBaseUrl() || 'local'})</span>
+            <WifiOff size={13} className="text-purple-400 shrink-0" />
+            <span className="truncate">Servidor PC offline ({getApiBaseUrl()})</span>
           </div>
           <div className="flex items-center gap-1 shrink-0 ml-2">
             <button
               onClick={() => setShowConfig(true)}
-              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium flex items-center gap-1 transition-colors"
+              className="px-2 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-[11px] font-medium flex items-center gap-1 transition-colors"
             >
-              Conectar PC <ArrowRight size={12} />
+              Conectar <ArrowRight size={11} />
             </button>
             <button
               onClick={() => setDismissed(true)}
-              className="p-1 text-amber-400 hover:text-white transition-colors"
+              className="p-1 text-purple-400 hover:text-white transition-colors"
               title="Dispensar aviso"
             >
-              <X size={14} />
+              <X size={13} />
             </button>
           </div>
         </div>
