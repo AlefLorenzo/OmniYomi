@@ -107,3 +107,35 @@ mangaRouter.put('/:id/category', (req, res) => {
   const ok = libraryManager.setCategory(id, categoryId);
   res.json({ success: ok, categoryId });
 });
+
+mangaRouter.post('/:id/favorite', async (req, res) => {
+  const { id } = req.params;
+  const { isFavorite } = req.body;
+
+  try {
+    let manga = db.getMangaById(id);
+    if (!manga) {
+      const { sourceId, sourceMangaId } = parseMangaId(id);
+      const source = extensionManager.getSource(sourceId);
+      if (source) {
+        const details = await source.getMangaDetails(sourceMangaId);
+        manga = db.saveOrUpdateManga({
+          id,
+          sourceId,
+          sourceMangaId,
+          title: details.title || 'Sem título',
+          ...details,
+        });
+      }
+    }
+
+    if (!manga) {
+      return res.status(404).json({ error: 'Mangá não encontrado' });
+    }
+
+    const updated = db.setMangaFavorite(id, Boolean(isFavorite));
+    res.json({ success: true, id, isFavorite: Boolean(isFavorite), manga: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});

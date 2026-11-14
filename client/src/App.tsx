@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { WsProvider } from './lib/ws';
 import { ToastProvider } from './components/ui/ToastProvider';
+import { UpdateChecker } from './components/UpdateChecker';
 import { Layout } from './components/layout/Layout';
 import { HomePage } from './pages/HomePage';
 import { CatalogPage } from './pages/CatalogPage';
@@ -35,6 +36,7 @@ export default function App() {
               <Route path="/manga/:id" element={<MangaDetailPage />} />
             </Route>
           </Routes>
+          <UpdateChecker />
         </ToastProvider>
       </WsProvider>
     </BrowserRouter>

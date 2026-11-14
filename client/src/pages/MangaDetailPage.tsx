@@ -3,18 +3,20 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   BookOpen, Download, Heart, HeartOff, RefreshCw, ArrowLeft,
   CheckSquare, Square, Star, User, Palette, ChevronDown, ChevronUp,
-  CheckCircle, Circle, HardDrive, Loader2
+  CheckCircle, Circle, HardDrive, Loader2, BookmarkPlus, BookmarkCheck
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Button, Loader, ProgressBar } from '../components/ui/index';
 import { Badge } from '../components/ui/CoverCard';
 import { formatRelativeDate, statusLabel, statusColor, cn } from '../lib/utils';
 import { useToast } from '../components/ui/ToastProvider';
+import { useWs } from '../lib/ws';
 
 export function MangaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { show } = useToast();
+  const { subscribe } = useWs();
   const mangaId = decodeURIComponent(id || '');
 
   const [manga, setManga] = useState<any>(null);
@@ -30,10 +32,31 @@ export function MangaDetailPage() {
   const [filterDownloaded, setFilterDownloaded] = useState(false);
   const [inLibrary, setInLibrary] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
 
   useEffect(() => {
     if (!mangaId) return;
     loadManga();
+
+    const unsubs = [
+      subscribe('DOWNLOAD_COMPLETED', (msg: any) => {
+        const chId = msg?.data?.chapterId || msg?.chapterId;
+        if (chId) {
+          setChapters(prev => prev.map(c => c.id === chId ? { ...c, isDownloaded: true } : c));
+          show('Capítulo baixado e disponível offline! 📥', 'success');
+        }
+      }),
+      subscribe('DOWNLOAD_PROGRESS', (msg: any) => {
+        const chId = msg?.data?.chapterId || msg?.chapterId;
+        const status = msg?.data?.status || msg?.status;
+        if (chId && status === 'COMPLETED') {
+          setChapters(prev => prev.map(c => c.id === chId ? { ...c, isDownloaded: true } : c));
+        }
+      }),
+    ];
+
+    return () => unsubs.forEach(u => u());
   }, [mangaId]);
 
   async function loadManga() {
@@ -47,6 +70,7 @@ export function MangaDetailPage() {
       setManga(mangaData);
       setChapters(chaptersData || []);
       setInLibrary(mangaData.inLibrary || false);
+      setIsFavorite(Boolean(mangaData.isFavorite || mangaData.categoryId === 'favorites'));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -70,13 +94,29 @@ export function MangaDetailPage() {
   async function handleLibraryToggle() {
     setLibraryLoading(true);
     try {
-      await api.setInLibrary(mangaId, !inLibrary, 'default');
-      setInLibrary(!inLibrary);
-      show(inLibrary ? 'Removido da biblioteca' : 'Adicionado à biblioteca!', 'success');
+      const nextLib = !inLibrary;
+      await api.setInLibrary(mangaId, nextLib, isFavorite ? 'favorites' : 'default');
+      setInLibrary(nextLib);
+      show(nextLib ? 'Adicionado à biblioteca!' : 'Removido da biblioteca', 'success');
     } catch (e: any) {
       show(e.message, 'error');
     } finally {
       setLibraryLoading(false);
+    }
+  }
+
+  async function handleFavoriteToggle() {
+    setFavoriteLoading(true);
+    try {
+      const nextFav = !isFavorite;
+      await api.toggleFavorite(mangaId, nextFav);
+      setIsFavorite(nextFav);
+      if (nextFav) setInLibrary(true);
+      show(nextFav ? 'Adicionado aos Favoritos! ❤️' : 'Removido dos Favoritos', 'success');
+    } catch (e: any) {
+      show(e.message, 'error');
+    } finally {
+      setFavoriteLoading(false);
     }
   }
 
@@ -176,16 +216,37 @@ export function MangaDetailPage() {
       </button>
 
       {/* Hero section */}
-      <div className="flex flex-col sm:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* Cover */}
         <div className="flex-shrink-0 self-start">
-          <div className="w-40 sm:w-48 rounded-xl overflow-hidden shadow-2xl shadow-black/50 ring-1 ring-white/5">
-            <img
-              src={manga.coverUrl}
-              alt={manga.title}
-              className="w-full aspect-[2/3] object-cover"
-              onError={e => { (e.target as HTMLImageElement).src = `https://placehold.co/300x450/1a1e29/8b5cf6?text=${encodeURIComponent(manga.title.slice(0, 15))}`; }}
-            />
+          <div className="w-40 sm:w-48 rounded-xl overflow-hidden shadow-2xl shadow-black/50 ring-1 ring-white/5 bg-[#121620] relative aspect-[2/3] flex items-center justify-center">
+            {manga.coverUrl ? (
+              <img
+                src={manga.coverUrl.startsWith('http') && !manga.coverUrl.startsWith('/api/proxy')
+                  ? `/api/proxy/image?url=${encodeURIComponent(manga.coverUrl)}`
+                  : manga.coverUrl}
+                alt={manga.title}
+                className="w-full h-full object-cover"
+                onError={e => {
+                  (e.target as HTMLElement).style.display = 'none';
+                  const fb = (e.target as HTMLElement).nextElementSibling as HTMLElement;
+                  if (fb) fb.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-[#131722]"
+              style={{ display: manga.coverUrl ? 'none' : 'flex' }}
+            >
+              <span className="text-3xl mb-1">📖</span>
+              <span className="text-xs text-gray-400 font-medium">{manga.title}</span>
+              <span className="text-[10px] text-gray-600 mt-1 uppercase">Capa Pendente</span>
+            </div>
+            {isFavorite && (
+              <div className="absolute top-2 right-2">
+                <Badge variant="red">❤️ Favorito</Badge>
+              </div>
+            )}
           </div>
         </div>
 
@@ -278,12 +339,22 @@ export function MangaDetailPage() {
             )}
 
             <Button
+              variant={isFavorite ? 'secondary' : 'outline'}
+              onClick={handleFavoriteToggle}
+              loading={favoriteLoading}
+              className={isFavorite ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30' : 'text-rose-400 border-rose-500/30 hover:bg-rose-500/10'}
+            >
+              <Heart size={16} className={isFavorite ? 'fill-rose-500 text-rose-500' : ''} />
+              {isFavorite ? 'Nos Favoritos' : 'Favoritar'}
+            </Button>
+
+            <Button
               variant={inLibrary ? 'secondary' : 'outline'}
               onClick={handleLibraryToggle}
               loading={libraryLoading}
             >
-              {inLibrary ? <HeartOff size={16} /> : <Heart size={16} />}
-              {inLibrary ? 'Remover' : 'Adicionar à Biblioteca'}
+              {inLibrary ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
+              {inLibrary ? 'Na Biblioteca' : 'Adicionar à Biblioteca'}
             </Button>
 
             <Button variant="secondary" onClick={handleRefresh} loading={chaptersLoading}>

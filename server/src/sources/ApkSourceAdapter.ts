@@ -5,6 +5,7 @@ import { Manga, Chapter, PageImage, MangaListResult } from '../types/index.js';
 import { db } from '../db/database.js';
 import { normalizeMangaTitles } from '../services/TitleNormalizer.js';
 import { flareSolverrService } from '../services/FlareSolverrService.js';
+import { suwayomiService } from '../services/SuwayomiService.js';
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -49,7 +50,89 @@ export class ApkSourceAdapter extends BaseSource {
     this.isKavita = this.pkg.includes('kavita') || this.name.toLowerCase().includes('kavita');
   }
 
+  /**
+   * Executa a consulta real da extensão via motor DEX do Suwayomi
+   */
+  private async executeSuwayomiFetch(
+    type: 'POPULAR' | 'LATEST' | 'SEARCH',
+    page: number,
+    query?: string
+  ): Promise<MangaListResult> {
+    try {
+      const isRunning = await suwayomiService.ensureRunning();
+      if (!isRunning) {
+        return { manga: [], hasNextPage: false, page, total: 0 };
+      }
+
+      const queryPart = query ? `, query: ${JSON.stringify(query)}` : '';
+      const gql = `
+        mutation {
+          fetchSourceManga(input: {
+            source: "${this.sourceId}",
+            type: ${type},
+            page: ${page}${queryPart}
+          }) {
+            hasNextPage
+            mangas {
+              id
+              title
+              thumbnailUrl
+              url
+              artist
+              author
+              description
+              genre
+              status
+            }
+          }
+        }
+      `;
+
+      const data = await suwayomiService.queryGql(gql);
+      const fetched = data?.fetchSourceManga?.mangas || [];
+      const hasNextPage = Boolean(data?.fetchSourceManga?.hasNextPage);
+
+      const suwayomiBase = suwayomiService.getBaseUrl();
+      const items: Manga[] = [];
+
+      for (const item of fetched) {
+        const normalized = normalizeMangaTitles(item.title, [], this.lang, this.name);
+        let coverUrl = item.thumbnailUrl || '';
+        if (coverUrl.startsWith('/')) {
+          coverUrl = `${suwayomiBase}${coverUrl}`;
+        }
+
+        const mangaItem = this.buildMangaItem(String(item.id), item.title, coverUrl, item.author || 'Desconhecido');
+        mangaItem.artist = item.artist || mangaItem.artist;
+        mangaItem.description = item.description || '';
+        mangaItem.status = item.status === 'COMPLETED' ? 'COMPLETED' : 'ONGOING';
+        mangaItem.genres = Array.isArray(item.genre) ? item.genre : [];
+        items.push(mangaItem);
+      }
+
+      return {
+        manga: items,
+        hasNextPage,
+        page,
+        total: items.length,
+      };
+    } catch (err: any) {
+      console.warn(`[ApkSourceAdapter] Erro na execução Suwayomi para ${this.name} (${this.sourceId}):`, err.message);
+      return { manga: [], hasNextPage: false, page, total: 0 };
+    }
+  }
+
   async getPopular(page: number = 1): Promise<MangaListResult> {
+    // 1. Tentar execução real no motor DEX do Suwayomi
+    try {
+      const suwRes = await this.executeSuwayomiFetch('POPULAR', page);
+      if (suwRes.manga.length > 0) {
+        return suwRes;
+      }
+    } catch {
+      // continua para fallbacks legados se houver
+    }
+
     if (this.isSuwayomiBridge) {
       return this.handleSuwayomiPopular(page);
     }
@@ -59,7 +142,7 @@ export class ApkSourceAdapter extends BaseSource {
       if (comikeyResult.manga.length > 0) return comikeyResult;
     }
 
-    // Try live web scraper first
+    // Try live web scraper
     if (this.baseUrl && this.baseUrl.startsWith('http')) {
       try {
         const liveResult = await this.handleLiveWebScraperPopular(page);
@@ -71,11 +154,21 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    // Resilient Fallback: Bridge to catalog in extension's language
-    return this.handleLanguageBridgePopular(page);
+    // Se a fonte não retornou obras, retornar vazio sem poluição entre extensões
+    return { manga: [], hasNextPage: false, page, total: 0 };
   }
 
   async getLatest(page: number = 1): Promise<MangaListResult> {
+    // 1. Tentar execução real no motor DEX do Suwayomi
+    try {
+      const suwRes = await this.executeSuwayomiFetch('LATEST', page);
+      if (suwRes.manga.length > 0) {
+        return suwRes;
+      }
+    } catch {
+      // continua
+    }
+
     if (this.isSuwayomiBridge) {
       return this.handleSuwayomiLatest(page);
     }
@@ -96,12 +189,22 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    return this.handleLanguageBridgePopular(page);
+    return { manga: [], hasNextPage: false, page, total: 0 };
   }
 
   async search(query: string, page: number = 1): Promise<MangaListResult> {
     const q = (query || '').trim();
     if (!q) return this.getPopular(page);
+
+    // 1. Tentar pesquisa real no motor DEX do Suwayomi
+    try {
+      const suwRes = await this.executeSuwayomiFetch('SEARCH', page, q);
+      if (suwRes.manga.length > 0) {
+        return suwRes;
+      }
+    } catch {
+      // continua
+    }
 
     if (this.isSuwayomiBridge) {
       return this.handleSuwayomiSearch(q, page);
@@ -123,10 +226,72 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    return this.handleLanguageBridgeSearch(q, page);
+    return { manga: [], hasNextPage: false, page, total: 0 };
   }
 
   async getMangaDetails(sourceMangaId: string): Promise<Partial<Manga>> {
+    // 1. Tentar Suwayomi se sourceMangaId for numérico
+    const suwId = parseInt(sourceMangaId, 10);
+    if (!isNaN(suwId) && (await suwayomiService.isHealthy())) {
+      try {
+        await suwayomiService.queryGql(`
+          mutation {
+            fetchMangaAndChapters(input: {
+              id: ${suwId},
+              fetchManga: true,
+              fetchChapters: false
+            }) {
+              clientMutationId
+            }
+          }
+        `);
+
+        const q = await suwayomiService.queryGql(`
+          query {
+            manga(id: ${suwId}) {
+              id
+              title
+              artist
+              author
+              description
+              genre
+              status
+              thumbnailUrl
+              url
+            }
+          }
+        `);
+
+        const m = q?.manga;
+        if (m) {
+          const normalized = normalizeMangaTitles(m.title, [], this.lang, this.name);
+          const suwayomiBase = suwayomiService.getBaseUrl();
+          let coverUrl = m.thumbnailUrl || '';
+          if (coverUrl.startsWith('/')) {
+            coverUrl = `${suwayomiBase}${coverUrl}`;
+          }
+
+          return {
+            id: `${this.id}:${sourceMangaId}`,
+            sourceId: this.id,
+            sourceMangaId,
+            title: normalized.title,
+            originalTitle: normalized.originalTitle,
+            titleLang: normalized.titleLang,
+            metadataSource: this.name,
+            coverUrl,
+            author: m.author || undefined,
+            artist: m.artist || undefined,
+            description: m.description || undefined,
+            status: m.status === 'COMPLETED' ? 'COMPLETED' : 'ONGOING',
+            genres: Array.isArray(m.genre) ? m.genre : [],
+          };
+        }
+      } catch (e: any) {
+        console.warn(`[ApkSourceAdapter] getMangaDetails Suwayomi falhou:`, e.message);
+      }
+    }
+
     if (this.isSuwayomiBridge) {
       const manga = db.getMangaById(sourceMangaId);
       if (manga) return manga;
@@ -158,11 +323,71 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    // Fallback: bridge to MangaDex details
-    return this.handleLanguageBridgeDetails(sourceMangaId);
+    return {
+      id: `${this.id}:${sourceMangaId}`,
+      sourceId: this.id,
+      sourceMangaId,
+      title: sourceMangaId.replace(/[-_]/g, ' '),
+    };
   }
 
   async getChapterList(sourceMangaId: string): Promise<Chapter[]> {
+    // 1. Tentar Suwayomi se sourceMangaId for numérico
+    const suwId = parseInt(sourceMangaId, 10);
+    if (!isNaN(suwId) && (await suwayomiService.isHealthy())) {
+      try {
+        await suwayomiService.queryGql(`
+          mutation {
+            fetchMangaAndChapters(input: {
+              id: ${suwId},
+              fetchManga: false,
+              fetchChapters: true
+            }) {
+              clientMutationId
+            }
+          }
+        `);
+
+        const q = await suwayomiService.queryGql(`
+          query {
+            manga(id: ${suwId}) {
+              chapters {
+                nodes {
+                  id
+                  chapterNumber
+                  name
+                  uploadDate
+                  url
+                  scanlator
+                  sourceOrder
+                }
+              }
+            }
+          }
+        `);
+
+        const nodes = q?.manga?.chapters?.nodes || [];
+        if (nodes.length > 0) {
+          return nodes.map((c: any, idx: number) => {
+            const chapterOrder = typeof c.sourceOrder === 'number' ? c.sourceOrder : (idx + 1);
+            return {
+              id: `${this.id}:${sourceMangaId}:${c.id}`,
+              sourceId: this.id,
+              mangaId: `${this.id}:${sourceMangaId}`,
+              sourceChapterId: `${sourceMangaId}:${chapterOrder}:${c.id}`,
+              chapterNumber: typeof c.chapterNumber === 'number' ? c.chapterNumber : idx + 1,
+              title: c.name || `Capítulo ${c.chapterNumber}`,
+              url: c.url || '',
+              date: c.uploadDate ? new Date(parseInt(c.uploadDate, 10)).toISOString() : undefined,
+              scanlator: c.scanlator || undefined,
+            };
+          });
+        }
+      } catch (e: any) {
+        console.warn(`[ApkSourceAdapter] getChapterList Suwayomi falhou:`, e.message);
+      }
+    }
+
     if (this.isSuwayomiBridge) {
       const chapters = db.getChapters(sourceMangaId);
       return chapters.map(c => ({
@@ -193,11 +418,90 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    // Fallback: bridge to MangaDex chapters
-    return this.handleLanguageBridgeChapters(sourceMangaId);
+    return [];
   }
 
   async getPageList(sourceChapterId: string, chapterUrl?: string): Promise<PageImage[]> {
+    // 1. Tentar Suwayomi se Suwayomi estiver disponível
+    if (await suwayomiService.isHealthy()) {
+      let mangaId: string | null = null;
+      let chapterIndex: string | null = null;
+      let suwayomiChapterId: number | null = null;
+
+      if (sourceChapterId.includes(':')) {
+        const parts = sourceChapterId.split(':');
+        if (parts.length >= 3) {
+          mangaId = parts[0];
+          chapterIndex = parts[1];
+          suwayomiChapterId = parseInt(parts[2], 10);
+        } else if (parts.length === 2) {
+          mangaId = parts[0];
+          suwayomiChapterId = parseInt(parts[1], 10);
+        }
+      } else {
+        const parsed = parseInt(sourceChapterId, 10);
+        if (!isNaN(parsed)) {
+          suwayomiChapterId = parsed;
+        }
+      }
+
+      if (suwayomiChapterId && !isNaN(suwayomiChapterId)) {
+        try {
+          // Se não temos mangaId ou chapterIndex (sourceOrder), consultar no Suwayomi
+          if (!mangaId || !chapterIndex) {
+            const chInfo = await suwayomiService.queryGql(`
+              query {
+                chapter(id: ${suwayomiChapterId}) {
+                  mangaId
+                  sourceOrder
+                  pageCount
+                }
+              }
+            `);
+            if (chInfo?.chapter) {
+              mangaId = String(chInfo.chapter.mangaId);
+              chapterIndex = String(chInfo.chapter.sourceOrder);
+            }
+          }
+
+          if (mangaId && chapterIndex) {
+            await suwayomiService.queryGql(`
+              mutation {
+                fetchChapterPages(input: {
+                  chapterId: ${suwayomiChapterId}
+                }) {
+                  clientMutationId
+                }
+              }
+            `);
+
+            const q = await suwayomiService.queryGql(`
+              query {
+                chapter(id: ${suwayomiChapterId}) {
+                  pageCount
+                }
+              }
+            `);
+
+            const pageCount = q?.chapter?.pageCount || 0;
+            if (pageCount > 0) {
+              const pages: PageImage[] = [];
+              for (let i = 0; i < pageCount; i++) {
+                const rawUrl = `http://127.0.0.1:4568/api/v1/manga/${mangaId}/chapter/${chapterIndex}/page/${i}`;
+                pages.push({
+                  index: i + 1,
+                  url: `/api/proxy/image?url=${encodeURIComponent(rawUrl)}`,
+                });
+              }
+              return pages;
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[ApkSourceAdapter] getPageList Suwayomi falhou:`, e.message);
+        }
+      }
+    }
+
     if (this.isSuwayomiBridge) {
       const ch = db.getChapterById(sourceChapterId);
       if (ch?.downloadedPath) {
@@ -222,8 +526,7 @@ export class ApkSourceAdapter extends BaseSource {
       }
     }
 
-    // Fallback: bridge to MangaDex pages
-    return this.handleLanguageBridgePages(sourceChapterId);
+    return [];
   }
 
   // ==========================================
@@ -877,7 +1180,21 @@ export class ApkSourceAdapter extends BaseSource {
   }
 
   private buildMangaItem(idPart: string, rawTitle: string, cover: string, author: string = 'Desconhecido', rawAlts: string[] = []): Manga {
-    const { title, originalTitle, altTitles } = normalizeMangaTitles(rawTitle, rawAlts, this.getTargetLanguage());
+    const { title, titleLang, originalTitle, altTitles } = normalizeMangaTitles(
+      rawTitle,
+      rawAlts,
+      this.getTargetLanguage(),
+      this.name
+    );
+
+    let validCover = cover ? cover.trim() : '';
+    if (validCover && !validCover.startsWith('http') && this.baseUrl) {
+      try {
+        validCover = new URL(validCover, this.baseUrl).href;
+      } catch {
+        // keep as is
+      }
+    }
 
     return {
       id: `${this.id}:${idPart}`,
@@ -885,14 +1202,16 @@ export class ApkSourceAdapter extends BaseSource {
       sourceName: this.name,
       sourceMangaId: idPart,
       title,
+      titleLang,
       originalTitle,
       altTitles,
+      metadataSource: this.name,
       description: '',
       author,
       artist: author,
       genres: [],
       status: 'ONGOING',
-      coverUrl: cover,
+      coverUrl: validCover,
       inLibrary: false,
       categoryId: null,
       totalChapters: 0,

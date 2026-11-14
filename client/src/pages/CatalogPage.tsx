@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, TrendingUp, Clock, Globe, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, TrendingUp, Clock, Globe, ShieldCheck, ShieldAlert, Sparkles, Filter, Layers } from 'lucide-react';
 import { api } from '../lib/api';
 import { CoverCard } from '../components/ui/CoverCard';
 import { Button, Input, Loader, Empty } from '../components/ui/index';
@@ -43,6 +43,16 @@ export function CatalogPage() {
 
   const currentSourceInfo = sources.find(s => s.id === selectedSource);
 
+  // Troca de fonte com limpeza imediata de estado para garantir isolamento absoluto
+  const handleSelectSource = (sourceId: string) => {
+    if (sourceId === selectedSource) return;
+    setManga([]);
+    setTotal(0);
+    setPage(1);
+    setSelectedSource(sourceId);
+    setSearchParams({ source: sourceId });
+  };
+
   useEffect(() => {
     if (activeTab === 'source') {
       setManga([]);
@@ -66,12 +76,16 @@ export function CatalogPage() {
       } else {
         result = await api.getPopular(selectedSource, p);
       }
-      setManga(result.manga || []);
+
+      // Garantir que todas as obras retornadas pertençam estritamente à extensão selecionada
+      const validatedManga = (result.manga || []).filter((m: any) => m.sourceId === selectedSource);
+      setManga(validatedManga);
       setHasNextPage(result.hasNextPage || false);
-      setTotal(result.total || 0);
+      setTotal(result.total || validatedManga.length);
       setPage(p);
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar catálogo da extensão');
+      setManga([]);
     } finally {
       setLoading(false);
     }
@@ -106,13 +120,13 @@ export function CatalogPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Header & Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Catálogo de Obras</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Títulos estritamente normalizados em PT-BR / Inglês com capas e capítulos completos
+            Obras exclusivas por extensão • Títulos em PT-BR / Inglês • Capas verificadas
           </p>
         </div>
 
@@ -120,25 +134,75 @@ export function CatalogPage() {
         <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-fit">
           <button
             onClick={() => setActiveTab('source')}
-            className={`text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer ${
-              activeTab === 'source' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-gray-200'
+            className={`text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'source' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            Navegar por Extensão
+            <Layers size={14} />
+            <span>Por Extensão</span>
           </button>
           <button
             onClick={() => setActiveTab('global')}
             className={`text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'global' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-gray-200'
+              activeTab === 'global' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <Globe size={13} />
+            <Globe size={14} />
             <span>Pesquisa Global</span>
           </button>
         </div>
       </div>
 
-      {/* Extension Info Banner (when per-source mode) */}
+      {/* EXTENSION SELECTOR SHELF (Carrossel / Grid de Extensões Instaladas) */}
+      {activeTab === 'source' && (
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Selecione a Extensão ({sources.length} instaladas)</span>
+            {currentSourceInfo && (
+              <span className="text-purple-400 normal-case font-normal">
+                Ativa: <strong>{currentSourceInfo.name}</strong>
+              </span>
+            )}
+          </label>
+
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+            {sources.map(src => {
+              const isSelected = src.id === selectedSource;
+              return (
+                <button
+                  key={src.id}
+                  onClick={() => handleSelectSource(src.id)}
+                  className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-left transition-all flex-shrink-0 cursor-pointer ${
+                    isSelected
+                      ? 'bg-purple-900/30 border-purple-500 shadow-md ring-1 ring-purple-500/50 text-white'
+                      : 'bg-[#151923] border-[#242b3b] text-gray-300 hover:border-gray-600 hover:bg-[#1a202d]'
+                  }`}
+                >
+                  <img
+                    src={src.iconUrl || '/assets/apk-icon.png'}
+                    alt={src.name}
+                    className="w-7 h-7 rounded-lg object-contain bg-[#0e1118]"
+                    onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/28x28/1a1e29/8b5cf6?text=?'; }}
+                  />
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold leading-tight line-clamp-1">{src.name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded uppercase font-bold ${
+                        isSelected ? 'bg-purple-500 text-white' : 'bg-[#242b3b] text-gray-400'
+                      }`}>
+                        {src.lang || 'ALL'}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-gray-500">v{src.version}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Extension Info Banner */}
       {activeTab === 'source' && currentSourceInfo && (
         <div className="flex items-center justify-between bg-[#151923] border border-[#242b3b] px-4 py-3 rounded-xl">
           <div className="flex items-center gap-3">
@@ -156,7 +220,7 @@ export function CatalogPage() {
                 </span>
                 <span className="text-xs text-gray-500">v{currentSourceInfo.version}</span>
               </div>
-              <p className="text-xs text-gray-500 truncate max-w-md">{currentSourceInfo.baseUrl || 'Extensão Local / Integrada'}</p>
+              <p className="text-xs text-gray-500 truncate max-w-md">{currentSourceInfo.baseUrl || 'Fonte Nativa / Integrada'}</p>
             </div>
           </div>
 
@@ -169,7 +233,7 @@ export function CatalogPage() {
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-amber-500/80" title={flaresolverr.message}>
-                  <ShieldAlert size={14} /> CF Fallback Ativo
+                  <ShieldAlert size={14} /> CF Protegido
                 </span>
               )}
             </div>
@@ -177,23 +241,8 @@ export function CatalogPage() {
         </div>
       )}
 
-      {/* Controls */}
+      {/* Controls: Search and Mode tabs */}
       <div className="flex flex-col sm:flex-row gap-3">
-        {/* Source selector (only in source tab) */}
-        {activeTab === 'source' && (
-          <select
-            value={selectedSource}
-            onChange={e => { setSelectedSource(e.target.value); setSearchParams({ source: e.target.value }); }}
-            className="bg-[#1a1e29] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 cursor-pointer min-w-[200px]"
-          >
-            {sources.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.lang?.toUpperCase() || 'ALL'})
-              </option>
-            ))}
-          </select>
-        )}
-
         {/* Search */}
         <div className="flex-1">
           <Input
@@ -204,7 +253,7 @@ export function CatalogPage() {
           />
         </div>
 
-        {/* Mode tabs (only in source tab) */}
+        {/* Mode tabs (only in per-source tab) */}
         {activeTab === 'source' && (
           <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1">
             {([
@@ -214,7 +263,7 @@ export function CatalogPage() {
               <button
                 key={mode}
                 onClick={() => { setViewMode(mode); setDebouncedQ(''); setSearchQuery(''); }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
                   viewMode === mode && !debouncedQ
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-400 hover:text-gray-200'
@@ -234,15 +283,16 @@ export function CatalogPage() {
           {/* Results info */}
           {!loading && manga.length > 0 && (
             <p className="text-xs text-gray-400">
-              {total > 0 ? `${total.toLocaleString()} obras encontradas` : `${manga.length} obras nesta página`}
-              {debouncedQ && ` para "${debouncedQ}"`} em <span className="text-purple-400">{currentSourceInfo?.name}</span>
+              {total > 0 ? `${total.toLocaleString()} obras` : `${manga.length} obras`} em <strong className="text-purple-300">{currentSourceInfo?.name}</strong>
+              {debouncedQ && ` para "${debouncedQ}"`}
             </p>
           )}
 
           {/* Grid */}
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader size="lg" label="Carregando catálogo da extensão..." />
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <Loader size="lg" label={`Consultando ${currentSourceInfo?.name || 'extensão'}...`} />
+              <p className="text-xs text-gray-500">Buscando obras exclusivas desta extensão</p>
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -251,12 +301,18 @@ export function CatalogPage() {
             </div>
           ) : manga.length === 0 ? (
             <Empty
-              icon="🔍"
-              title="Nenhuma obra encontrada"
-              description={debouncedQ ? `Sem resultados para "${debouncedQ}" nesta extensão` : 'Tente outra fonte ou termo de busca'}
+              icon="📦"
+              title={`Nenhuma obra retornada por "${currentSourceInfo?.name || 'esta extensão'}"`}
+              description={
+                debouncedQ
+                  ? `Sem resultados para "${debouncedQ}" nesta extensão.`
+                  : currentSourceInfo?.baseUrl
+                    ? `O site (${currentSourceInfo.baseUrl}) pode estar protegido por Cloudflare ou temporariamente inacessível. Tente outra extensão ou pesquise globalmente.`
+                    : 'Esta extensão não possui catálogo público ou requer configuração local.'
+              }
             />
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
               {manga.map(m => (
                 <div key={m.id} className="flex flex-col">
                   <CoverCard
@@ -264,11 +320,16 @@ export function CatalogPage() {
                     coverUrl={m.coverUrl}
                     onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
                   />
-                  {m.originalTitle && (
-                    <span className="text-[11px] text-gray-500 italic truncate mt-1 px-1" title={`Título Original: ${m.originalTitle}`}>
-                      {m.originalTitle}
+                  <div className="mt-1 px-1">
+                    {m.originalTitle && (
+                      <span className="text-[11px] text-gray-500 italic truncate block" title={`Original: ${m.originalTitle}`}>
+                        {m.originalTitle}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-600 block truncate">
+                      Fonte: {m.sourceName || currentSourceInfo?.name}
                     </span>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -306,7 +367,7 @@ export function CatalogPage() {
             <Empty
               icon="🌐"
               title="Pesquisa Global Unificada"
-              description="Digite um título acima para pesquisar simultaneamente em todas as extensões e agrupar obras idênticas"
+              description="Digite um título no campo de busca para consultar todas as extensões e agrupar obras idênticas"
             />
           ) : loading ? (
             <div className="flex items-center justify-center py-20">
@@ -328,7 +389,7 @@ export function CatalogPage() {
               <p className="text-xs text-gray-400">
                 {globalGroups.length} obras únicas identificadas através das fontes ativas
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                 {globalGroups.map(grp => (
                   <div key={grp.canonicalSlug} className="flex flex-col group">
                     <CoverCard

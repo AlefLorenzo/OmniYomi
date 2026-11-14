@@ -22,7 +22,7 @@ export function Sidebar() {
   const location = useLocation();
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 z-30 w-16 xl:w-56 bg-[#0d1017] border-r border-[#1f2535] flex flex-col">
+    <aside className="fixed left-0 top-0 bottom-0 z-30 w-16 xl:w-56 bg-[#0d1017] border-r border-[#1f2535] hidden md:flex flex-col">
       {/* Logo */}
       <div className="px-3 py-4 border-b border-[#1f2535] flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-purple-900/40">

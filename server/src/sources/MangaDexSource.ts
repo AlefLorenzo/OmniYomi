@@ -14,11 +14,34 @@ export class MangaDexSource extends BaseSource {
 
   private client = axios.create({
     baseURL: 'https://api.mangadex.org',
-    timeout: 15000,
+    timeout: 20000,
     headers: {
       'User-Agent': 'OmniYomi-Reader/1.0.0 (https://github.com/apkmanhwa/omniyomi)',
     },
   });
+
+  constructor() {
+    super();
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const config = error.config;
+        if (!config || (config as any).__retryCount >= 2) {
+          return Promise.reject(error);
+        }
+        if (
+          error.code === 'ECONNRESET' ||
+          error.code === 'ETIMEDOUT' ||
+          (error.message && error.message.includes('socket hang up'))
+        ) {
+          (config as any).__retryCount = ((config as any).__retryCount || 0) + 1;
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          return this.client(config);
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
 
   filters: FilterDefinition[] = [
     {
@@ -215,17 +238,14 @@ export class MangaDexSource extends BaseSource {
     // Extract raw title (prefer PT-BR, then EN, then first available)
     const rawMainTitle = attr.title?.['pt-br'] || attr.title?.pt || attr.title?.en || Object.values(attr.title || {})[0] || 'Sem Título';
 
-    // Extract alt titles
-    const rawAltTitles: string[] = [];
-    if (attr.altTitles && Array.isArray(attr.altTitles)) {
-      for (const at of attr.altTitles) {
-        const val = Object.values(at)[0] as string;
-        if (val && !rawAltTitles.includes(val)) rawAltTitles.push(val);
-      }
-    }
-
     // Normalização rigorosa: Garante título principal em PT-BR ou EN
-    const { title, originalTitle, altTitles } = normalizeMangaTitles(String(rawMainTitle), rawAltTitles, 'pt-br');
+    const rawAltTitles = attr.altTitles || [];
+    const { title, titleLang, originalTitle, altTitles } = normalizeMangaTitles(
+      String(rawMainTitle),
+      rawAltTitles,
+      'pt-br',
+      'MangaDex API v5'
+    );
 
     // Extract description
     const description = attr.description?.pt || attr.description?.['pt-br'] || attr.description?.en || Object.values(attr.description || {})[0] || '';
@@ -267,8 +287,10 @@ export class MangaDexSource extends BaseSource {
       sourceName: this.name,
       sourceMangaId: item.id,
       title,
+      titleLang,
       originalTitle,
       altTitles: altTitles.slice(0, 5),
+      metadataSource: 'MangaDex API v5',
       description: typeof description === 'string' ? description : '',
       author,
       artist,

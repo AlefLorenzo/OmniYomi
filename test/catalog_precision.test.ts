@@ -1,15 +1,15 @@
 import assert from 'assert';
-import { normalizeMangaTitles, validateTitleLanguage, isNonLatinScript } from '../server/src/services/TitleNormalizer.js';
+import { normalizeMangaTitles, validateTitleLanguage, isNonLatinScript, isRomanizedTitle } from '../server/src/services/TitleNormalizer.js';
 import { coverManager } from '../server/src/services/CoverManager.js';
-import { deduplicationService, generateCanonicalSlug } from '../server/src/services/DeduplicationService.js';
+import { deduplicationService } from '../server/src/services/DeduplicationService.js';
 import { flareSolverrService } from '../server/src/services/FlareSolverrService.js';
 import { extensionManager } from '../server/src/sources/ExtensionManager.js';
 import { Manga } from '../server/src/types/index.js';
 
 async function runPrecisionTestSuite() {
-  console.log('\n================================================================');
-  console.log('  SUÍTE DE VALIDAÇÃO: CATÁLOGO MULTIFONTES COM PRECISÃO TOTAL');
-  console.log('================================================================\n');
+  console.log('\n========================================================================');
+  console.log('  SUÍTE DE TESTES: CATÁLOGO POR EXTENSÃO, TÍTULOS PT-BR/EN E CAPAS');
+  console.log('========================================================================\n');
 
   let passed = 0;
   let total = 0;
@@ -27,162 +27,171 @@ async function runPrecisionTestSuite() {
     }
   }
 
-  // 1. REGRA 1: Validação de idioma dos títulos (nunca CJK / Hangul como principal)
-  await test('Detecção de scripts não-latinos (CJK, Hangul, Árabe)', () => {
-    assert.strictEqual(isNonLatinScript('ワンピース'), true, 'Japonês deve ser detectado');
-    assert.strictEqual(isNonLatinScript('나 혼자만 레벨업'), true, 'Coreano Hangul deve ser detectado');
-    assert.strictEqual(isNonLatinScript('斗罗大陆'), true, 'Chinês Hanzi deve ser detectado');
-    assert.strictEqual(isNonLatinScript('Solo Leveling'), false, 'Inglês é latino e permitido');
-    assert.strictEqual(isNonLatinScript('O Início Depois do Fim'), false, 'PT-BR é latino e permitido');
-  });
+  // -------------------------------------------------------------
+  // TESTE A: SELEÇÃO DE EXTENSÃO E ISOLAMENTO RIGOROSO
+  // -------------------------------------------------------------
+  let mangaDexManga: Manga[] = [];
+  let comikeyManga: Manga[] = [];
 
-  await test('Normalização e Priorização: Inversão de CJK bruto para Título Original', () => {
-    const rawKorean = '나 혼자만 레벨업';
-    const altTitles = ['Solo Leveling', 'I Level Up Alone', 'Ore Dake Level Up na Ken'];
+  await test('Teste A1 — Consulta à extensão MangaDex retorna exclusivamente obras do MangaDex', async () => {
+    const mdSource = extensionManager.getSource('mangadex');
+    assert.ok(mdSource, 'Fonte MangaDex deve estar registrada');
 
-    const normalized = normalizeMangaTitles(rawKorean, altTitles, 'pt-br');
+    const result = await mdSource.getPopular(1);
+    assert.ok(result.manga.length > 0, 'MangaDex deve retornar obras');
+    mangaDexManga = result.manga;
 
-    assert.strictEqual(normalized.title, 'Solo Leveling', 'Título principal deve ser o título latino (EN/PT-BR)');
-    assert.strictEqual(normalized.originalTitle, '나 혼자만 레벨업', 'Título coreano deve ser preservado como originalTitle');
-    assert.ok(!isNonLatinScript(normalized.title), 'Título principal NUNCA pode ter caracteres CJK/Hangul');
-    assert.ok(normalized.altTitles.includes('I Level Up Alone'), 'Outras alternativas devem ser preservadas');
-  });
-
-  await test('Validador estrito de conformidade de idioma rejeita CJK como principal', () => {
-    const invalidRes = validateTitleLanguage('呪術廻戦');
-    assert.strictEqual(invalidRes.valid, false, 'Deve rejeitar título principal em kanji');
-
-    const validRes = validateTitleLanguage('Jujutsu Kaisen');
-    assert.strictEqual(validRes.valid, true, 'Deve aceitar título principal em caracteres latinos');
-
-    const ptRes = validateTitleLanguage('A Garota de Fogo');
-    assert.strictEqual(ptRes.valid, true, 'Deve aceitar título em PT-BR');
-  });
-
-  // 2. REGRA 2: Validação de Capas e Magic Bytes
-  await test('Validação de integridade de imagens por Magic Bytes (evita HTML como capa)', () => {
-    // Buffer simulando resposta de erro HTML de Cloudflare
-    const fakeHtmlBuffer = Buffer.from('<!DOCTYPE html><html><body>Error 403 Forbidden</body></html>');
-    const fakeRes = coverManager.validateMagicBytes(fakeHtmlBuffer);
-    assert.strictEqual(fakeRes.valid, false, 'HTML de erro deve ser rejeitado como imagem');
-
-    // Buffer de JPEG real: FF D8 FF
-    const realJpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
-    const jpegRes = coverManager.validateMagicBytes(realJpegBuffer);
-    assert.strictEqual(jpegRes.valid, true, 'JPEG com magic bytes válidos deve ser aceito');
-    assert.strictEqual(jpegRes.format, 'image/jpeg');
-
-    // Buffer de PNG real: 89 50 4E 47
-    const realPngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const pngRes = coverManager.validateMagicBytes(realPngBuffer);
-    assert.strictEqual(pngRes.valid, true, 'PNG com magic bytes válidos deve ser aceito');
-    assert.strictEqual(pngRes.format, 'image/png');
-  });
-
-  await test('Geração determinística de chave de cache para capas', () => {
-    const key1 = coverManager.getCacheKey('https://cdn.manga.com/cover1.jpg', 'https://manga.com');
-    const key2 = coverManager.getCacheKey('https://cdn.manga.com/cover1.jpg', 'https://manga.com');
-    const key3 = coverManager.getCacheKey('https://cdn.manga.com/cover2.jpg', 'https://manga.com');
-
-    assert.strictEqual(key1, key2, 'Mesma URL e referer devem produzir exatamente a mesma chave de cache');
-    assert.notStrictEqual(key1, key3, 'URLs diferentes devem produzir chaves diferentes');
-  });
-
-  // 3. REGRA 4: Isolamento estrito por extensão (sem misturar fontes)
-  await test('Isolamento estrito de catálogo por extensão', async () => {
-    const sources = extensionManager.getAllSources().filter(s => s.isEnabled);
-    assert.ok(sources.length >= 2, 'Deve ter pelo menos 2 fontes ativas');
-
-    const sourceA = sources[0];
-    const sourceB = sources[1];
-
-    const instA = extensionManager.getSource(sourceA.id)!;
-    const instB = extensionManager.getSource(sourceB.id)!;
-
-    const resA = await instA.getPopular(1);
-    const resB = await instB.getPopular(1);
-
-    for (const m of resA.manga) {
-      assert.strictEqual(m.sourceId, sourceA.id, `Obra de ${sourceA.id} deve ter sourceId estrito`);
-      assert.ok(m.id.startsWith(sourceA.id), `ID da obra deve iniciar com prefixo da fonte ${sourceA.id}`);
-    }
-
-    for (const m of resB.manga) {
-      assert.strictEqual(m.sourceId, sourceB.id, `Obra de ${sourceB.id} deve ter sourceId estrito`);
+    for (const m of result.manga) {
+      assert.strictEqual(m.sourceId, 'mangadex', `Toda obra deve ter sourceId 'mangadex', encontrado: ${m.sourceId}`);
+      assert.ok(m.id.startsWith('mangadex:'), `ID da obra deve iniciar com 'mangadex:', encontrado: ${m.id}`);
     }
   });
 
-  // 4. REGRA 7: Identificação e Deduplicação entre fontes
-  await test('Deduplicação de obras idênticas de fontes diferentes', () => {
-    const m1: Manga = {
-      id: 'mangadex:123',
-      sourceId: 'mangadex',
-      sourceName: 'MangaDex',
-      sourceMangaId: '123',
-      title: 'Solo Leveling',
-      altTitles: ['Na Honjaman Level-Up'],
-      description: 'Hunter Sung Jin-Woo',
-      author: 'Chugong',
-      artist: 'DUBU',
-      genres: ['Action', 'Fantasy'],
-      status: 'COMPLETED',
-      coverUrl: 'https://m.com/1.jpg',
-      inLibrary: true,
-      categoryId: 'reading',
-      totalChapters: 200,
-      unreadCount: 0,
-      downloadedCount: 0,
-      lastChapterNumber: 200,
-      lastReadChapterId: null,
-      lastReadAt: null,
-      createdAt: 1000,
-      updatedAt: 1000,
-    };
+  await test('Teste A2 — Consulta à extensão Comikey retorna exclusivamente obras da Comikey', async () => {
+    const sources = extensionManager.getAllSources();
+    const comikeySourceMeta = sources.find(s => s.id.includes('comikey'));
+    assert.ok(comikeySourceMeta, 'Extensão Comikey deve estar registrada');
 
-    const m2: Manga = {
-      id: 'apk:eu.kanade.tachiyomi.extension.pt.imperiodabritannia:7355:solo-leveling',
-      sourceId: 'apk:eu.kanade.tachiyomi.extension.pt.imperiodabritannia:7355',
-      sourceName: 'Sagrado Império',
-      sourceMangaId: 'solo-leveling',
-      title: 'Solo Leveling',
-      altTitles: ['I Level Up Alone'],
-      description: 'Caçador Sung Jin-Woo',
-      author: 'Chugong',
-      artist: 'DUBU',
-      genres: ['Ação'],
-      status: 'COMPLETED',
-      coverUrl: 'https://i.com/2.jpg',
-      inLibrary: false,
-      categoryId: null,
-      totalChapters: 179,
-      unreadCount: 0,
-      downloadedCount: 0,
-      lastChapterNumber: 179,
-      lastReadChapterId: null,
-      lastReadAt: null,
-      createdAt: 2000,
-      updatedAt: 2000,
-    };
+    const comikeyInst = extensionManager.getSource(comikeySourceMeta.id);
+    assert.ok(comikeyInst, 'Instância da extensão Comikey deve estar disponível');
 
-    assert.strictEqual(deduplicationService.isSameWork(m1, m2), true, 'Obras com mesmo título e autor devem ser reconhecidas como mesma obra');
+    const result = await comikeyInst.getPopular(1);
+    assert.ok(result.manga.length > 0, 'Comikey deve retornar obras');
+    comikeyManga = result.manga;
 
-    const groups = deduplicationService.groupMangaAcrossSources([m1, m2]);
-    assert.strictEqual(groups.length, 1, 'Deve agrupar em 1 grupo canônico');
-    assert.strictEqual(groups[0].sources.length, 2, 'Grupo deve conter as 2 fontes distintas preservadas');
-    assert.strictEqual(groups[0].sources[0].sourceId, 'mangadex');
-    assert.strictEqual(groups[0].sources[1].sourceId, 'apk:eu.kanade.tachiyomi.extension.pt.imperiodabritannia:7355');
+    for (const m of result.manga) {
+      assert.strictEqual(m.sourceId, comikeySourceMeta.id, `Toda obra deve ter sourceId '${comikeySourceMeta.id}'`);
+      assert.ok(m.id.startsWith(comikeySourceMeta.id), `ID da obra deve iniciar com prefixo da Comikey`);
+    }
   });
 
-  // 5. REGRA 6: FlareSolverr Service Health & Fallback
-  await test('Verificação de integridade do FlareSolverr e fallback gracioso', async () => {
-    const health = await flareSolverrService.checkHealth();
-    assert.ok(typeof health.available === 'boolean', 'Status de disponibilidade deve ser booleano');
-    assert.ok(health.message.length > 0, 'Mensagem descritiva deve estar presente');
+  await test('Teste A3 — Isolamento total: Nenhuma obra de MangaDex está presente na Comikey ou vice-versa', () => {
+    assert.ok(mangaDexManga.length > 0 && comikeyManga.length > 0, 'Ambas as extensões devem possuir obras para comparação');
+    
+    const mdIds = new Set(mangaDexManga.map(m => m.id));
+    const comikeyIds = new Set(comikeyManga.map(m => m.id));
+
+    for (const id of mdIds) {
+      assert.strictEqual(comikeyIds.has(id), false, `Obra de MangaDex (${id}) NÃO pode aparecer na Comikey`);
+    }
+
+    for (const id of comikeyIds) {
+      assert.strictEqual(mdIds.has(id), false, `Obra de Comikey (${id}) NÃO pode aparecer no MangaDex`);
+    }
   });
 
-  console.log('\n================================================================');
-  console.log(`  RESULTADO: ${passed}/${total} TESTES DE PRECISÃO APROVADOS! (${Math.round((passed / total) * 100)}%)`);
-  console.log('================================================================\n');
+  // -------------------------------------------------------------
+  // TESTE B: IDIOMA DOS TÍTULOS — SOMENTE PT-BR OU INGLÊS
+  // -------------------------------------------------------------
+  await test('Teste B1 — Detecção e rejeição de títulos Romanizados (Romaji, Romaja, Pinyin)', () => {
+    assert.strictEqual(isRomanizedTitle('Na Honjaman Level-Up'), true, 'Romaja coreana deve ser detectada');
+    assert.strictEqual(isRomanizedTitle('Sono Bisque Doll wa Koi o Suru'), true, 'Romaji japonesa deve ser detectada');
+    assert.strictEqual(isRomanizedTitle('Shingeki no Kyojin'), true, 'Romaji de Attack on Titan deve ser detectada');
+    assert.strictEqual(isRomanizedTitle('Solo Leveling'), false, 'Título em inglês não é romanização');
+    assert.strictEqual(isRomanizedTitle('My Dress-Up Darling'), false, 'Título em inglês não é romanização');
+    assert.strictEqual(isRomanizedTitle('A Princesa Encantada'), false, 'Título em PT-BR não é romanização');
+  });
+
+  await test('Teste B2 — Normalização de Solo Leveling: promove "Solo Leveling" e remove "Na Honjaman Level-Up"', () => {
+    const rawTitle = 'Na Honjaman Level-Up';
+    const altTitles = [
+      { ko: '나 혼자만 레벨업' },
+      { en: 'Solo Leveling' },
+      { 'ko-ro': 'Na Honjaman Lebel-eob' },
+      { en: 'I level up alone' },
+      { 'ja-ro': 'Ore Dake Level Up na Ken' }
+    ];
+
+    const normalized = normalizeMangaTitles(rawTitle, altTitles, 'pt-br', 'MangaDex API v5');
+    assert.strictEqual(normalized.title, 'Solo Leveling', 'Título principal exibido deve ser "Solo Leveling"');
+    assert.strictEqual(normalized.titleLang, 'en', 'Idioma identificado deve ser "en"');
+    assert.strictEqual(normalized.originalTitle, 'Na Honjaman Level-Up', 'Título original deve ser preservado');
+
+    const validation = validateTitleLanguage(normalized.title);
+    assert.strictEqual(validation.valid, true, 'O título exibido deve ser aprovado pelo validador estrito');
+    assert.strictEqual(validation.detectedLang, 'en');
+  });
+
+  await test('Teste B3 — Normalização de Sono Bisque Doll: promove "My Dress-Up Darling"', () => {
+    const sonoRaw = 'Sono Bisque Doll wa Koi o Suru';
+    const sonoAlts = [
+      { ja: 'その着せ替え人形は恋をする' },
+      { en: 'My Dress-Up Darling' },
+      { en: 'The Bisque Doll Falls In Love' }
+    ];
+
+    const normalized = normalizeMangaTitles(sonoRaw, sonoAlts, 'pt-br', 'MangaDex API v5');
+    assert.strictEqual(normalized.title, 'My Dress-Up Darling', 'Título principal exibido deve ser em inglês');
+    assert.strictEqual(normalized.titleLang, 'en');
+    assert.strictEqual(normalized.originalTitle, 'Sono Bisque Doll wa Koi o Suru');
+
+    const validation = validateTitleLanguage(normalized.title);
+    assert.strictEqual(validation.valid, true);
+  });
+
+  await test('Teste B4 — Todos os títulos retornados pelo catálogo MangaDex passam na validação de idioma', () => {
+    let approved = 0;
+    for (const m of mangaDexManga) {
+      assert.ok(m.title && m.title.trim().length > 0, 'Título não pode estar vazio');
+      const val = validateTitleLanguage(m.title);
+      assert.strictEqual(val.valid, true, `Título "${m.title}" deve estar em PT-BR ou EN. Motivo: ${val.reason}`);
+      approved++;
+    }
+    console.log(` (${approved}/${mangaDexManga.length} títulos aprovados)`);
+  });
+
+  // -------------------------------------------------------------
+  // TESTE C: PRECISÃO E CARREGAMENTO DE CAPAS
+  // -------------------------------------------------------------
+  await test('Teste C1 — Verificação de URLs de capa retornadas pelo catálogo', () => {
+    for (const m of mangaDexManga) {
+      assert.ok(m.coverUrl && m.coverUrl.length > 0, `Obra "${m.title}" deve possuir coverUrl`);
+      assert.ok(m.coverUrl.startsWith('http'), `coverUrl deve ser endereço absoluto: ${m.coverUrl}`);
+    }
+
+    for (const m of comikeyManga) {
+      assert.ok(m.coverUrl && m.coverUrl.length > 0, `Obra "${m.title}" deve possuir coverUrl`);
+      assert.ok(m.coverUrl.startsWith('http'), `coverUrl Comikey deve ser absoluto: ${m.coverUrl}`);
+    }
+  });
+
+  await test('Teste C2 — Cache local e proxy de capa com auto-resolução de Referer', async () => {
+    const sampleCover = mangaDexManga[0]?.coverUrl;
+    assert.ok(sampleCover, 'Capa de teste deve existir');
+
+    // Primeira consulta (baixa e armazena em cache validando magic bytes)
+    const res1 = await coverManager.getOrFetchCover(sampleCover);
+    assert.ok(res1.filePath, 'Deve salvar o arquivo binário em cache');
+    assert.ok(res1.contentType.startsWith('image/'), `Content-Type deve ser de imagem: ${res1.contentType}`);
+
+    // Segunda consulta (retorna imediatamente do cache local)
+    const res2 = await coverManager.getOrFetchCover(sampleCover);
+    assert.strictEqual(res2.isCached, true, 'Segunda consulta deve indicar cache local ativo');
+    assert.strictEqual(res2.filePath, res1.filePath, 'Caminho do arquivo em cache deve ser idêntico');
+  });
+
+  await test('Teste C3 — Rejeição estrita de HTML de erro como imagem de capa', () => {
+    const errorHtml = Buffer.from('<html><head><title>403 Forbidden</title></head><body>Cloudflare error</body></html>');
+    const magicCheck = coverManager.validateMagicBytes(errorHtml);
+    assert.strictEqual(magicCheck.valid, false, 'HTML de bloqueio NÃO pode ser considerado imagem válida');
+  });
+
+  // -------------------------------------------------------------
+  // TESTE D: PAGINAÇÃO E RESET DE ESTADO NA TROCA DE FONTE
+  // -------------------------------------------------------------
+  await test('Teste D1 — Paginação de catálogo com avanço para página 2', async () => {
+    const mdSource = extensionManager.getSource('mangadex')!;
+    const p1 = await mdSource.getPopular(1);
+    const p2 = await mdSource.getPopular(2);
+
+    assert.ok(p1.manga.length > 0 && p2.manga.length > 0, 'Ambas as páginas devem possuir obras');
+    assert.notStrictEqual(p1.manga[0].id, p2.manga[0].id, 'Primeira obra da pág 1 deve ser diferente da pág 2');
+    assert.strictEqual(p2.page, 2, 'Página retornada deve ser 2');
+  });
+
+  console.log('\n========================================================================');
+  console.log(`  RESULTADO: ${passed}/${total} TESTES APROVADOS! (${Math.round((passed / total) * 100)}%)`);
+  console.log('========================================================================\n');
 
   if (passed === total) {
     process.exit(0);

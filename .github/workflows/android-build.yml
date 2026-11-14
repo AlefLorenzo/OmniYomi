@@ -1,0 +1,168 @@
+name: Android Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do APK (ex: 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Determinar versão
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Instalar dependências raiz
+        run: npm ci
+
+      - name: Instalar dependências client
+        run: cd client && npm ci
+
+      - name: Build do cliente React SPA
+        run: cd client && npm run build
+        env:
+          npm_package_version: ${{ steps.get_version.outputs.VERSION }}
+
+      - name: Inicializar Capacitor Android
+        run: |
+          cd client
+          npx cap add android || echo "Android platform already added"
+
+      - name: Sincronizar Capacitor
+        run: cd client && npx cap sync android
+
+      - name: Configurar versionamento no build.gradle
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          VERSION_CODE=$(echo $VERSION | tr -d '.' | sed 's/^0*//')
+          if [ -z "$VERSION_CODE" ]; then VERSION_CODE=1; fi
+          GRADLE_FILE="client/android/app/build.gradle"
+          if [ -f "$GRADLE_FILE" ]; then
+            sed -i "s/versionCode [0-9]*/versionCode ${VERSION_CODE}/" "$GRADLE_FILE"
+            sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE_FILE"
+          fi
+
+      - name: Configurar Keystore de Assinatura (se fornecido)
+        if: secrets.KEYSTORE_BASE64 != ''
+        run: |
+          mkdir -p client/android/app/keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > client/android/app/keystore/omniyomi.keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Compilar APK Debug
+        run: |
+          cd client/android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Compilar APK Release (se keystore configurada)
+        if: secrets.KEYSTORE_BASE64 != ''
+        run: |
+          cd client/android
+          ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: keystore/omniyomi.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Localizar e renomear APKs
+        id: find_apk
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          DEBUG_APK=$(find client/android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -1)
+          if [ -z "$DEBUG_APK" ]; then
+            DEBUG_APK=$(find client/android -name "*-debug.apk" 2>/dev/null | head -1)
+          fi
+          
+          echo "Debug APK encontrado: $DEBUG_APK"
+          if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
+            cp "$DEBUG_APK" "OmniYomi-v${VERSION}-debug.apk"
+            echo "DEBUG_OUTPUT=OmniYomi-v${VERSION}-debug.apk" >> $GITHUB_OUTPUT
+          fi
+
+          RELEASE_APK=$(find client/android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
+            cp "$RELEASE_APK" "OmniYomi-v${VERSION}-release.apk"
+            echo "RELEASE_OUTPUT=OmniYomi-v${VERSION}-release.apk" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload APK Debug como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}-debug
+          path: OmniYomi-*-debug.apk
+          retention-days: 30
+
+      - name: Upload APK Release como artefato (se existir)
+        if: steps.find_apk.outputs.RELEASE_OUTPUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}-release
+          path: OmniYomi-*-release.apk
+          retention-days: 30
+
+      - name: Publicar Release no GitHub
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OmniYomi v${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## 📱 OmniYomi v${{ steps.get_version.outputs.VERSION }} — Android APK
+            
+            Versão oficial do leitor e gerenciador de mangás, manhwas e manhuas OmniYomi para Android.
+            
+            ### 📥 Download do APK
+            Baixe o arquivo `.apk` abaixo e abra em seu celular ou tablet Android para instalar.
+            
+            > **Dica**: No primeiro uso, o Android solicitará permissão para instalar aplicativos de fontes desconhecidas do seu navegador ou gerenciador de arquivos.
+            
+            ### ✨ Recursos
+            - 🌐 Suporte completo a todas as extensões do ecossistema Tachiyomi
+            - 📖 Leitura online e offline com páginas salvas no dispositivo
+            - 📱 Interface mobile 100% responsiva com navegação inferior e suporte a notch
+            - ❤️ Favoritos, histórico e biblioteca sincronizados
+            - 🔄 Atualização automática do aplicativo direto pelo app
+          files: |
+            OmniYomi-*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

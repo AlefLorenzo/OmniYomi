@@ -213,9 +213,10 @@ export class DownloadManager extends EventEmitter {
 
       // 2. Prepare directory
       const baseDownloadDir = this.getDownloadPath();
+      const safeSource = this.sanitizeName(item.sourceId);
       const safeManga = this.sanitizeName(item.mangaTitle);
       const safeChapter = this.sanitizeName(item.chapterTitle || `Capítulo ${item.chapterNumber}`);
-      const targetDir = path.join(baseDownloadDir, item.sourceId, safeManga, safeChapter);
+      const targetDir = path.join(baseDownloadDir, safeSource, safeManga, safeChapter);
 
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
@@ -307,16 +308,52 @@ export class DownloadManager extends EventEmitter {
     }
   }
 
+  public resolveActualImageUrl(url: string): string {
+    if (!url) return '';
+    // Extrai URL real se estiver envelopada em /api/proxy/image?url=...
+    if (url.includes('/api/proxy/image') && url.includes('url=')) {
+      try {
+        const queryPart = url.split('url=')[1];
+        const rawParam = queryPart.split('&')[0];
+        const decoded = decodeURIComponent(rawParam);
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return decoded;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    // Se for URL relativa interna, aponta para o servidor local
+    if (url.startsWith('/')) {
+      return `http://127.0.0.1:4567${url}`;
+    }
+    return url;
+  }
+
   private async downloadImageFile(url: string, destPath: string, customHeaders?: Record<string, string>, signal?: AbortSignal): Promise<void> {
+    const targetUrl = this.resolveActualImageUrl(url);
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      ...customHeaders,
+    };
+
+    if (!headers['Referer'] && targetUrl.startsWith('http')) {
+      try {
+        const parsed = new URL(targetUrl);
+        if (!parsed.hostname.includes('127.0.0.1') && !parsed.hostname.includes('localhost')) {
+          headers['Referer'] = parsed.origin;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const res = await axios({
       method: 'GET',
-      url,
+      url: targetUrl,
       responseType: 'stream',
-      timeout: 25000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        ...customHeaders,
-      },
+      timeout: 30000,
+      headers,
       signal,
     });
 
@@ -362,11 +399,13 @@ export class DownloadManager extends EventEmitter {
   }
 
   private detectExtensionFromUrl(url: string): string {
-    const clean = url.split('?')[0].toLowerCase();
+    const actual = this.resolveActualImageUrl(url);
+    const clean = actual.split('?')[0].toLowerCase();
     if (clean.endsWith('.png')) return '.png';
     if (clean.endsWith('.webp')) return '.webp';
     if (clean.endsWith('.gif')) return '.gif';
     if (clean.endsWith('.jpeg')) return '.jpeg';
+    if (clean.endsWith('.avif')) return '.avif';
     return '.jpg';
   }
 

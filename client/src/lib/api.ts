@@ -52,6 +52,8 @@ export const api = {
   refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
   setInLibrary: (id: string, inLibrary: boolean, categoryId?: string) =>
     request<any>(`/manga/${id}/library`, { method: 'POST', body: JSON.stringify({ inLibrary, categoryId }) }),
+  toggleFavorite: (id: string, isFavorite: boolean) =>
+    request<any>(`/manga/${id}/favorite`, { method: 'POST', body: JSON.stringify({ isFavorite }) }),
   setCategory: (id: string, categoryId: string) =>
     request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
 

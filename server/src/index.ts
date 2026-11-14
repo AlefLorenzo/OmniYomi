@@ -16,6 +16,8 @@ import { historyRouter } from './routes/historyRouter.js';
 import { settingsRouter } from './routes/settingsRouter.js';
 import { updatesRouter } from './routes/updatesRouter.js';
 import { proxyRouter } from './routes/proxyRouter.js';
+import { suwayomiService } from './services/SuwayomiService.js';
+import { extensionManager } from './sources/ExtensionManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,10 +71,18 @@ setupWebSocket(server);
 const settings = db.getSettings();
 const PORT = process.env.PORT || settings.port || 4567;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`====================================================`);
   console.log(`  OmniYomi Server executando com sucesso!`);
   console.log(`  URL: http://localhost:${PORT}`);
   console.log(`  WebSocket: ws://localhost:${PORT}/ws`);
   console.log(`====================================================`);
+
+  // Inicializar o runtime de extensões Tachiyomi Suwayomi
+  suwayomiService.ensureRunning().then(async (ok) => {
+    if (ok) {
+      console.log('[Motor Tachiyomi] Suwayomi DEX runtime conectado com sucesso!');
+      await extensionManager.syncSuwayomiExtensions();
+    }
+  });
 });

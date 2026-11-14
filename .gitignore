@@ -1,10 +1,35 @@
-node_modules
-client/node_modules
+# Dependências
+node_modules/
+client/node_modules/
+
+# Builds
+dist/
+client/dist/
+client/android/
+client/ios/
+.gradle/
+build/
+
+# Dados locais e bancos
 data/downloads/*
 !data/downloads/.gitkeep
 data/omniyomi.db*
 data/local_manga/*
 !data/local_manga/.gitkeep
+data/cache/
+data/suwayomi.log*
+data/extensions/cache/
+data/extensions/extracted/
+
+# Chaves e Segredos
+*.keystore
+*.jks
 .env
+.env.local
+
+# SO e IDEs
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+scratch/

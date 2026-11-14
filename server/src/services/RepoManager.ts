@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { decodeProtobufRepo } from './ProtobufRepoDecoder.js';
+import { suwayomiService } from './SuwayomiService.js';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -343,7 +344,26 @@ export class RepoManager {
       sources,
     });
 
-    // 5. Register live sources into ExtensionManager so they are immediately browsable
+    // 5. Instalar no motor Suwayomi DEX para execução real das classes Kotlin
+    if (await suwayomiService.ensureRunning()) {
+      try {
+        console.log(`[Extrator] Instalando no runtime Suwayomi DEX: ${pkg}...`);
+        await suwayomiService.queryGql(`
+          mutation {
+            updateExtension(input: {
+              id: "${pkg}",
+              patch: { install: true }
+            }) {
+              clientMutationId
+            }
+          }
+        `);
+      } catch (err: any) {
+        console.warn(`[Extrator] Aviso ao sincronizar com Suwayomi:`, err.message);
+      }
+    }
+
+    // 6. Register live sources into ExtensionManager so they are immediately browsable
     extensionManager.registerApkExtensionSources({
       pkg,
       name,
@@ -370,6 +390,22 @@ export class RepoManager {
     if (fs.existsSync(apkPath)) {
       fs.unlinkSync(apkPath);
     }
+
+    // Desinstalar no Suwayomi também
+    suwayomiService.isHealthy().then(healthy => {
+      if (healthy) {
+        suwayomiService.queryGql(`
+          mutation {
+            updateExtension(input: {
+              id: "${pkg}",
+              patch: { uninstall: true }
+            }) {
+              clientMutationId
+            }
+          }
+        `).catch(() => {});
+      }
+    });
 
     // Remove from DB and ExtensionManager
     db.deleteExtractedExtension(pkg);

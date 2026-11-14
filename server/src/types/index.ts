@@ -6,8 +6,10 @@ export interface Manga {
   sourceName?: string;
   sourceMangaId: string;
   title: string;              // Obrigatório em PT-BR ou EN
-  originalTitle?: string;     // Título original (pode estar em japonês, coreano, etc.)
+  titleLang?: 'pt-br' | 'en' | 'unknown'; // Idioma identificado do título
+  originalTitle?: string;     // Título original (em japonês, coreano, romaji, etc.)
   altTitles: string[];
+  metadataSource?: string;    // Fonte do metadado
   description: string;
   author: string;
   artist: string;
@@ -15,6 +17,7 @@ export interface Manga {
   status: PublicationStatus;
   coverUrl: string;
   inLibrary: boolean;
+  isFavorite?: boolean;
   categoryId: string | null;
   totalChapters: number;
   unreadCount: number;

@@ -2,6 +2,7 @@ import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { Manga, Chapter } from '../types/index.js';
 import { EventEmitter } from 'events';
+import { parseMangaId } from '../utils/idHelper.js';
 
 export class LibraryManager extends EventEmitter {
   private updateTimer: NodeJS.Timeout | null = null;
@@ -23,6 +24,9 @@ export class LibraryManager extends EventEmitter {
     this.updateTimer = setInterval(() => {
       this.checkLibraryUpdates().catch(e => console.error('Erro na verificação automática de updates:', e.message));
     }, intervalMinutes * 60 * 1000);
+    if (this.updateTimer?.unref) {
+      this.updateTimer.unref();
+    }
   }
 
   public async addToLibrary(mangaId: string, categoryId: string = 'default'): Promise<Manga> {
@@ -54,7 +58,27 @@ export class LibraryManager extends EventEmitter {
   }
 
   public async refreshMangaChapters(mangaId: string): Promise<Chapter[]> {
-    const manga = db.getMangaById(mangaId);
+    let manga = db.getMangaById(mangaId);
+    if (!manga) {
+      const { sourceId, sourceMangaId } = parseMangaId(mangaId);
+      if (sourceId && sourceMangaId) {
+        const source = extensionManager.getSource(sourceId);
+        if (source) {
+          try {
+            const details = await source.getMangaDetails(sourceMangaId);
+            manga = db.saveOrUpdateManga({
+              id: mangaId,
+              sourceId,
+              sourceMangaId,
+              title: details.title || 'Sem título',
+              ...details,
+            });
+          } catch (e: any) {
+            console.warn(`[LibraryManager] Falha ao obter detalhes do mangá ${mangaId}:`, e.message);
+          }
+        }
+      }
+    }
     if (!manga) throw new Error('Mangá não encontrado');
 
     const source = extensionManager.getSource(manga.sourceId);

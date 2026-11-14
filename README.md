@@ -1,183 +1,189 @@
-# OmniYomi — Plataforma Completa de Leitura de Mangás, Manhwas e Manhuas
+# 📱 OmniYomi — Leitor & Gerenciador de Mangás, Manhwas e Manhuas
 
-> Inspirado no ecossistema **Tachidesk Server** e **Tachiyomi/Mihon**, com identidade visual própria, arquitetura modular local-first, gerenciamento completo de downloads, leitor especializado (Webtoon vertical contínuo e Mangá paginado) e suporte a leitura 100% offline.
+O **OmniYomi** é uma plataforma completa e moderna de leitura, agregação e gerenciamento de mangás, manhwas e manhuas. Inspirado no ecossistema **Tachiyomi / Suwayomi / Keiyoushi**, o OmniYomi unifica um servidor de alta performance, catálogo com normalização precisa de títulos, leitura fluida e suporte completo ao aplicativo **Android (APK)** com sincronização e leitura offline.
 
 ---
 
-## 🚀 Visão Geral do Sistema
+## ✨ Recursos Principais
 
-O **OmniYomi** foi desenvolvido para proporcionar controle absoluto ao usuário sobre suas fontes, catálogos, biblioteca, downloads e experiência de leitura.
+### 🌐 Integração Real com Extensões Tachiyomi
+- Execução direta dos repositórios de extensões do Tachiyomi / Keiyoushi.
+- Consulta ao catálogo real por fonte individual (sem catálogos fictícios).
+- Extração de metadados, paginação completa de todos os capítulos, capas em alta definição e lista de páginas.
+- Filtragem estrita por fonte selecionada: selecionar uma extensão exibe única e exclusivamente suas obras.
+
+### 🇧🇷 Títulos em Português (PT-BR) e Inglês (EN)
+- Sistema automático de normalização e validação de títulos.
+- Elimina títulos brutos em Hangul, Kanji ou Hanzi no título principal.
+- Ordem de prioridade inteligente: PT-BR oficial > Inglês oficial > Título alternativo em EN > Tradução PT-BR confiável.
+
+### 📱 Experiência Mobile & Android Nativo (APK)
+- **Barra de Navegação Inferior (Bottom Nav)**: navegação intuitiva com uma mão no celular (Início, Biblioteca, Catálogo, Downloads e Configurações).
+- **Safe Area & Notches**: suporte completo a telas modernas, barras de gestos do Android e câmeras em furo/notch (`viewport-fit=cover`).
+- **Layout Adaptável**:
+  - Celulares: 2 colunas no catálogo e biblioteca, hero view vertical na página de detalhes.
+  - Tablets e Dobráveis: 3 a 4 colunas dinâmicas.
+  - Desktop: 4 a 6 colunas com sidebar retrátil.
+- **Leitor Otimizado**: suporte a tela cheia, leitura vertical (webtoon) e modo páginas.
+
+### 📥 Downloads Físicos no Dispositivo & Leitura 100% Offline
+- **Armazenamento no Aparelho**: os capítulos baixados são salvos fisicamente no armazenamento do dispositivo (`OmniYomi/Downloads/[Fonte]/[Obra]/[Capítulo]/page-XXX.jpg`).
+- **Independência do Servidor para Leitura**: capítulos baixados abrem instantaneamente offline (`isOffline: true`) sem depender de conexão com o servidor ou com a internet.
+- **Download em Lote**: suporte a baixar capítulos individuais ou faixas inteiras de capítulos.
+- **Notificação em Tempo Real**: WebSocket integrado (`DOWNLOAD_COMPLETED` e `DOWNLOAD_PROGRESS`) com atualização visual automática.
+
+### 🔄 Sistema de Atualização Integrado (In-App Updater)
+- O aplicativo verifica automaticamente a existência de novas versões publicadas no **GitHub Releases**.
+- Ao detectar uma atualização, apresenta um banner amigável informando a nova versão e o changelog.
+- Permite o download direto do novo arquivo `.apk` com confirmação padrão de segurança do Android.
+- Preserva todos os dados locais, biblioteca, favoritos, histórico e capítulos baixados ao atualizar.
+
+---
+
+## 🛠️ Arquitetura do Projeto
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 OmniYomi Web Interface                      │
-│        (React 19 + TypeScript + Vite + Tailwind CSS)        │
-│   Início • Catálogo • Fontes • Biblioteca • Downloads ...   │
-└──────────────────────────────▲──────────────────────────────┘
-                               │ HTTP REST + WebSockets (ws://)
-┌──────────────────────────────▼──────────────────────────────┐
-│                    OmniYomi Core Server                     │
-│               (Node.js v22 + Express + TSX)                 │
-├──────────────────────────────┬──────────────────────────────┤
-│      Database & Storage      │      Download & Queue        │
-│    SQLite (better-sqlite3)   │   Concurrent Image Worker    │
-│    Data Directory: data/     │   Magic Number Validation    │
-├──────────────────────────────┴──────────────────────────────┤
-│                  Modular Extension Engine                   │
-│   • MangaDex (Official API v5: Multi-lang, High-Res)        │
-│   • WeebCentral (Community Scraper Extension)               │
-│   • Armazenamento Local (Offline CBZ, ZIP & Folder Scanner) │
-│   • Sandbox VM Loader (Dynamic .js Extensions)              │
-└─────────────────────────────────────────────────────────────┘
+OmniYomi/
+├── client/                     # Interface React 19 + TailwindCSS v4 + Vite
+│   ├── src/
+│   │   ├── components/         # Componentes UI, Layout, BottomNav e UpdateChecker
+│   │   ├── pages/              # Páginas (Catálogo, Detalhes, Leitor, Biblioteca, etc.)
+│   │   ├── lib/                # API client, WebSocket e Updater
+│   │   └── App.tsx             # Rotas e provedores
+│   ├── capacitor.config.ts     # Configuração do Capacitor Android
+│   └── package.json
+│
+├── server/                     # Backend Node.js + Express + TypeScript
+│   ├── src/
+│   │   ├── db/                 # Banco SQLite (better-sqlite3) e migrações
+│   │   ├── routes/             # Endpoints REST (manga, capítulos, fontes, downloads)
+│   │   ├── services/           # DownloadManager, LibraryManager, SuwayomiService
+│   │   ├── sources/            # Adapters de extensões APK e MangaDex
+│   │   └── index.ts            # Ponto de entrada do servidor
+│   └── tsconfig.json
+│
+├── .github/workflows/          # Pipeline de CI/CD
+│   ├── android-build.yml       # Compilação automática do APK & GitHub Releases
+│   └── ci.yml                  # Validação e testes automáticos
+│
+├── scripts/                    # Scripts de automação
+│   ├── setup-android.ps1       # Setup do ambiente Android (Windows PowerShell)
+│   └── setup-android.sh        # Setup do ambiente Android (Linux/macOS)
+│
+└── data/                       # Armazenamento local (banco, downloads, extensões)
 ```
 
 ---
 
-## 🌟 Funcionalidades Principais
+## 🚀 Como Executar Localmente
 
-### 1. Sistema de Fontes e Extensões Modulares
-- **Suporte Multiformato a Repositórios Tachiyomi / Mihon / Suwayomi**:
-  - **Protocol Buffers (`index.pb`)**: Decodificação nativa com descompressão Gzip automática (usado por repositórios modernos como **FelipeGFA** e **Cursed Yūzōnō**).
-  - **JSON Moderno (`index.json`)**: Formato hierárquico com manifesto e metadados completos (usado pelo catálogo principal do **Keiyoushi** com mais de 1.600 extensões).
-  - **JSON Legado (`index.min.json`)**: Formato clássico em array (usado por **Suwayomi** e **Kavita**).
-- **Repositórios Pré-configurados**:
-  1. **Keiyoushi**: Maior catálogo comunitário global com 1.600+ extensões.
-  2. **FelipeGFA**: Projeto com foco especial em extensões e scanlations em Português (PT-BR).
-  3. **Cursed Yūzōnō**: Catálogo adicional com fontes especiais.
-  4. **Kavita**: Extensões para integração com servidores de quadrinhos Kavita.
-  5. **Suwayomi Official**: Extensão de conexão com servidores Suwayomi/Tachidesk.
-- **Descompactador e Extrator de APKs**:
-  - Baixa e descompacta arquivos `.apk` com extração de `classes.dex`, `AndroidManifest.xml`, ícones e fontes.
-  - Carrega as fontes em tempo real através do **`ApkSourceAdapter`** sem necessidade de reiniciar.
-- **MangaDex Oficial (API v5)**: Milhares de títulos em múltiplos idiomas (Português PT-BR, Inglês, Espanhol), sinopses, capas em alta definição e lista completa de capítulos.
-- **WeebCentral**: Extensão dinâmica para lançamentos rápidos de manhwas e webtoons populares.
-- **Armazenamento Local (Offline)**: Suporte a arquivos locais em formato `.cbz`, `.zip` e pastas com imagens (`.jpg`, `.png`, `.webp`). Basta adicionar seus títulos na pasta `data/local_manga/` para leitura instantânea sem internet!
-- **Motor de Extensões em Sandbox**: Permite adicionar novas fontes dinamicamente na pasta `data/extensions/` sem necessidade de recompilar o núcleo da aplicação.
-- **Verificação de Saúde**: Teste de conectividade com resposta em tempo real (`Online` / `Falha`).
+### Pré-requisitos
+- **Node.js** v20 ou superior
+- **npm** v10 ou superior
+- **Java 17+** (caso utilize o runtime Suwayomi localmente)
 
-> **Nota Técnica de Compatibilidade com Tachiyomi/Suwayomi:**  
-> Extensões originais do Tachiyomi são pacotes Android compilados em bytecode Dalvik (`.apk` / `classes.dex`), que exigem emuladores ou stubs do framework Android (como o Suwayomi implementa em Java/Kotlin). O OmniYomi adota a especificação moderna de **Extensões Modulares JavaScript/TypeScript** (padrão adotado por projetos modernos como Aidoku e Paperback), garantindo execução nativa, ultrarrápida, segura e isolada sem sobrecarga de máquina virtual Dalvik.
-
-### 2. Catálogo e Pesquisa Global
-- Grade responsiva com capas de alta qualidade (adaptando-se de 2 até 6 colunas dependendo do monitor).
-- Pesquisa instantânea por título com debounce.
-- Filtros por demografia (Shounen, Seinen, Shoujo, Josei) e idiomas (PT-BR, EN, ES).
-- Abas rápidas para obras mais populares e atualizações recentes.
-
-### 3. Página de Detalhes da Obra
-- Capa em destaque, autores, artistas, sinopse expansível, gêneros e status de publicação.
-- Lista completa de capítulos com numeração precisa e data de lançamento.
-- Indicador visual de capítulo **Lido** e capítulo **Baixado (Offline)**.
-- **Seleção Flexível de Intervalos**:
-  - Selecionar todos os capítulos com um clique.
-  - Seleção por intervalos pré-definidos: `1 a 50`, `51 a 100`, `101 a 200`.
-  - Seletor de intervalo personalizado (`De: X Até: Y`).
-- Download em lote e marcação de status em lote.
-
-### 4. Gerenciador de Downloads Robusto
-- Fila concorrente com controle configurável de downloads simultâneos (1 a 5).
-- Atualização em tempo real via **WebSockets** (barra de progresso individual e geral).
-- Capacidade de pausar, retomar, cancelar e limpar downloads concluídos.
-- **Prevenção de duplicatas**: Capítulos já baixados são identificados e protegidos.
-- **Validação de Integridade**: Verificação de assinaturas mágicas de bytes (`JPEG`, `PNG`, `WEBP`, `GIF`) para impedir que arquivos corrompidos ou páginas de erro 403 sejam salvas como imagens.
-- Estrutura organizada no disco: `data/downloads/{sourceId}/{mangaTitle}/{chapterTitle}/page-XXX.ext`.
-- Medidor de espaço em disco ocupado.
-
-### 5. Leitor de Capítulos Avançado
-- **Modo Manhwa (Rolagem Vertical Contínua - Webtoon)**:
-  - Rolagem infinita, fluida e contínua ideal para webtoons coreanos.
-  - Ajuste de espaçamento entre páginas (0px gapless até 32px).
-  - Rastreamento em tempo real da página visível por observação de interseção.
-  - Avanço contínuo para o próximo capítulo sem sair do leitor.
-- **Modo Mangá (Paginado)**:
-  - Leitura página por página com transições instantâneas.
-  - Direção de leitura: **Direita para Esquerda (RTL)** para mangás japoneses ou **Esquerda para Direita (LTR)** para quadrinhos ocidentais.
-  - Modos de ajuste: Ajustar à largura, Ajustar à altura, Ajustar à tela inteira e Tamanho original.
-  - Controles de Zoom (- / + / reset).
-  - Navegação por teclado (`←` / `→`, `A` / `D`, `F` para tela cheia) e zonas de toque nas bordas laterais.
-- **Memorização de Posição**: Salva automaticamente a última página e posição de leitura.
-- **Marcação Automática como Lido**: Marca o capítulo como lido quando o usuário atinge o limite configurável (padrão: 85%).
-- **Suporte Offline**: Capítulos baixados são servidos diretamente do sistema de arquivos local sem qualquer conexão externa.
-
-### 6. Biblioteca e Organização
-- Gerenciamento de status: Não iniciados, Em andamento, Concluídos, Favoritos.
-- Categorias personalizadas (criar, renomear, excluir, mover obras).
-- Badges de capítulos não lidos em tempo real.
-- Visualização em Grade ou Lista.
-
-### 7. Atualizações Automáticas
-- Verificação programada periódica (15min, 30min, 1h, 6h, 24h).
-- Botão de checagem manual na biblioteca.
-- Comparação inteligente com controle de requisições para evitar rate-limiting das fontes.
-
----
-
-## 🛠️ Tecnologias Utilizadas
-
-- **Backend**: Node.js v22, TypeScript, Express, Better-SQLite3, Axios, Cheerio, Adm-Zip, WebSockets (`ws`).
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Lucide Icons.
-- **Banco de Dados**: SQLite embarcado com modo WAL (Write-Ahead Logging) persistido em `data/omniyomi.db`.
-
----
-
-## 📦 Como Executar
-
-### 1. Iniciar o Servidor Completo (Produção integrada)
-O servidor Express já está configurado para servir tanto a API quanto o frontend compilado na porta `4567`:
-
+### 1. Instalação das Dependências
 ```bash
-npm start
+# Na raiz do projeto
+npm install
+
+# No diretório do cliente
+cd client && npm install
+cd ..
 ```
-Acesse no seu navegador: **`http://localhost:4567`**
 
-### 2. Modo Desenvolvimento
-Para desenvolvimento ativo com hot-reload no backend e frontend:
-
+### 2. Iniciar em Modo de Desenvolvimento
 ```bash
-# Terminal 1: Backend com monitoramento de arquivos
+# Iniciar o servidor backend (porta 4567)
 npm run dev:server
 
-# Terminal 2: Frontend Vite
+# Em outro terminal, iniciar o cliente web (porta 3000)
 npm run dev:client
 ```
+Acesse no seu navegador: `http://localhost:3000`.
 
-### 3. Executar a Suíte de Testes Automatizados
-O projeto conta com uma suíte de testes ponta a ponta validando banco de dados, fontes reais, downloads e leitura offline:
+---
+
+## 📱 Compilação do APK Android
+
+### 1. Compilação Local com Capacitor & Android Studio
 
 ```bash
-npm test
+# 1. Compilar o frontend web
+npm run build:client
+
+# 2. Inicializar e sincronizar o projeto Android (primeira vez)
+powershell -ExecutionPolicy Bypass -File ./scripts/setup-android.ps1
+# Ou no Linux/macOS:
+# bash ./scripts/setup-android.sh
+
+# 3. Gerar o APK de Debug via linha de comando:
+cd client/android
+./gradlew assembleDebug
+
+# O APK estará em:
+# client/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Para abrir no **Android Studio**:
+```bash
+cd client
+npx cap open android
 ```
 
 ---
 
-## 📂 Estrutura de Diretórios
+## 🤖 Pipeline de CI/CD no GitHub Actions
 
-```
-apkmanhwa/
-├── client/                     # Frontend React + TypeScript
-│   ├── src/
-│   │   ├── components/         # Layout (Sidebar), UI (Cards, Modals, Badges)
-│   │   ├── pages/              # Início, Catálogo, Detalhes, Leitor, Biblioteca, etc.
-│   │   ├── lib/                # Cliente API REST e WebSockets
-│   └── dist/                   # Build de produção do cliente
-├── server/                     # Backend Node.js + TypeScript
-│   ├── src/
-│   │   ├── db/                 # Banco SQLite e modelos de dados
-│   │   ├── sources/            # Implementações de fontes (MangaDex, Local, ExtensionManager)
-│   │   ├── services/           # DownloadManager, LibraryManager
-│   │   ├── routes/             # Rotas REST da API
-│   │   ├── websocket.ts        # Servidor de eventos em tempo real
-│   │   └── index.ts            # Ponto de entrada do servidor
-├── data/                       # Diretório persistente do usuário
-│   ├── omniyomi.db             # Banco de dados SQLite
-│   ├── downloads/              # Capítulos baixados organizados por obra
-│   ├── extensions/             # Extensões externas dinâmicas (.js)
-│   └── local_manga/            # Pasta para mangás/manhwas offline (pastas, .cbz, .zip)
-└── test/
-    └── system.test.ts          # Suíte de testes automatizados ponta a ponta
-```
+O projeto conta com automação completa via **GitHub Actions** em `.github/workflows/android-build.yml`:
+
+### Como Gerar um Novo APK Automaticamente:
+1. **Via Tag (Recomendado)**:
+   ```bash
+   git tag -a v1.0.0 -m "OmniYomi v1.0.0"
+   git push origin v1.0.0
+   ```
+   O GitHub Actions irá:
+   - Compilar o cliente React e sincronizar com o Capacitor.
+   - Compilar o APK (`assembleDebug` e `assembleRelease`).
+   - Criar uma **GitHub Release** automaticamente com o arquivo `OmniYomi-v1.0.0-debug.apk` anexado para download.
+   - Disponibilizar a atualização para os usuários pelo próprio app!
+
+2. **Via Execução Manual (Workflow Dispatch)**:
+   - Acesse a aba **Actions** no seu repositório GitHub.
+   - Selecione o workflow **Android Build & Release**.
+   - Clique em **Run workflow** e informe a versão desejada.
+
+### Assinatura do APK (Release Keystore)
+Para gerar APKs assinados para distribuição de produção:
+1. Gere um par de chaves:
+   ```bash
+   keytool -genkey -v -keystore omniyomi.keystore -alias omniyomi -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Converta o arquivo `.keystore` para base64:
+   ```bash
+   # Windows (PowerShell)
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("omniyomi.keystore")) | Set-Clipboard
+   ```
+3. No repositório GitHub, vá em **Settings → Secrets and variables → Actions** e adicione:
+   - `KEYSTORE_BASE64`: Conteúdo em base64 da keystore.
+   - `KEYSTORE_PASSWORD`: Senha da keystore.
+   - `KEY_ALIAS`: Alias da chave (`omniyomi`).
+   - `KEY_PASSWORD`: Senha da chave.
+
+---
+
+## 📱 Compatibilidade Android
+
+| Versão Android | API Level | Suporte |
+|----------------|-----------|---------|
+| Android 7.0+   | API 24+   | ✅ Suportado Oficialmente |
+| Android 8.0+   | API 26+   | ✅ Suportado |
+| Android 10+    | API 29+   | ✅ Suportado (Scoped Storage compatível) |
+| Android 12+    | API 31+   | ✅ Suportado (Material You & Splash nativo) |
+| Android 14+    | API 34+   | ✅ Suportado (Target SDK atual) |
 
 ---
 
 ## 📄 Licença
-Desenvolvido como software livre sob a licença MIT.
+Distribuído sob licença aberta com foco em software livre e preservação digital.

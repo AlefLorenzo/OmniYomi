@@ -91,12 +91,14 @@ chaptersRouter.post('/:id/progress', (req, res) => {
       return res.status(404).json({ error: 'Capítulo não encontrado' });
     }
 
-    const updated = db.updateChapterProgress(id, {
-      lastPageRead: page,
-      totalPages: totalPages || chapter.totalPages,
-      isRead: Boolean(isRead),
-    });
+    db.updateChapterProgress(
+      id,
+      page || chapter.lastPageRead || 0,
+      totalPages || chapter.totalPages || 0,
+      Boolean(isRead)
+    );
 
+    const updated = db.getChapterById(id);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

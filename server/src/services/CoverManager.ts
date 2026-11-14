@@ -117,12 +117,31 @@ export class CoverManager {
       }
     }
 
+    // Auto-derivar referer e user-agent adequados para fontes conhecidas e CDNs
+    let targetReferer = referer;
+    let userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+    try {
+      const urlObj = new URL(imageUrl);
+      if (urlObj.hostname.includes('mangadex.org')) {
+        targetReferer = 'https://mangadex.org';
+        // MangaDex uploads CDN contorna edge challenge para clientes identificados da comunidade
+        userAgent = 'OmniYomi/1.0';
+      } else if (urlObj.hostname.includes('comikey.com')) {
+        targetReferer = 'https://comikey.com';
+      } else if (!targetReferer) {
+        targetReferer = urlObj.origin;
+      }
+    } catch {
+      // ignore
+    }
+
     // Fazer download com headers adequados
     const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'User-Agent': userAgent,
       'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
     };
-    if (referer) headers['Referer'] = referer;
+    if (targetReferer) headers['Referer'] = targetReferer;
 
     const res = await axios.get(imageUrl, {
       responseType: 'arraybuffer',

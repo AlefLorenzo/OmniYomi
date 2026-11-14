@@ -10,6 +10,7 @@ import { LocalStorageSource } from './LocalStorageSource.js';
 import { ApkSourceAdapter } from './ApkSourceAdapter.js';
 import { SourceManifest, ExtensionRepoItem, MangaListResult, Chapter, PageImage, Manga } from '../types/index.js';
 import { db } from '../db/database.js';
+import { suwayomiService } from '../services/SuwayomiService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +54,7 @@ export class ExtensionManager {
             baseUrl: s.baseUrl,
           });
           this.sources.set(adapter.id, adapter);
+          db.registerSource(adapter.getManifest());
           console.log(`[Extensões APK] Fonte carregada: ${adapter.name} (${adapter.id})`);
         }
       }
@@ -106,17 +108,131 @@ export class ExtensionManager {
 
   public getAllSources(): (SourceManifest & { health: { status: 'OK' | 'ERROR'; lastChecked: number; error?: string } })[] {
     const dbSources = db.getSources();
-    return dbSources.map(s => {
+    const result: (SourceManifest & { health: { status: 'OK' | 'ERROR'; lastChecked: number; error?: string } })[] = [];
+    const seenIds = new Set<string>();
+
+    for (const s of dbSources) {
+      seenIds.add(s.id);
       const liveSource = this.sources.get(s.id);
       const manifest = liveSource ? liveSource.getManifest() : s;
       const health = this.sourceHealth.get(s.id) || { status: 'OK', lastChecked: Date.now() };
 
-      return {
+      result.push({
         ...manifest,
         isEnabled: s.isEnabled,
         health,
-      };
-    });
+      });
+    }
+
+    // Incluir fontes ativas em memória que ainda não foram persistidas
+    for (const [id, liveSource] of this.sources.entries()) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        const manifest = liveSource.getManifest();
+        const health = this.sourceHealth.get(id) || { status: 'OK', lastChecked: Date.now() };
+        result.push({
+          ...manifest,
+          isEnabled: true,
+          health,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  public async syncSuwayomiExtensions(): Promise<void> {
+    try {
+      const isRunning = await suwayomiService.ensureRunning();
+      if (!isRunning) return;
+
+      // 1. Obter extensões instaladas no Suwayomi
+      const suwExtData = await suwayomiService.queryGql(`
+        query {
+          extensions {
+            nodes {
+              pkgName
+              name
+              lang
+              versionName
+              isInstalled
+            }
+          }
+        }
+      `);
+
+      const installedInSuwayomi = new Set<string>(
+        (suwExtData?.extensions?.nodes || [])
+          .filter((n: any) => n.isInstalled)
+          .map((n: any) => n.pkgName)
+      );
+
+      // 2. Garantir que todas as extensões do banco local estejam instaladas no Suwayomi
+      const extractedList = db.getExtractedExtensions();
+      for (const ext of extractedList) {
+        if (!installedInSuwayomi.has(ext.pkg)) {
+          console.log(`[ExtensionManager] Sincronizando e instalando extensão no Suwayomi: ${ext.name} (${ext.pkg})...`);
+          try {
+            await suwayomiService.queryGql(`
+              mutation {
+                updateExtension(input: {
+                  id: "${ext.pkg}",
+                  patch: { install: true }
+                }) {
+                  clientMutationId
+                }
+              }
+            `);
+            installedInSuwayomi.add(ext.pkg);
+          } catch (e: any) {
+            console.warn(`[ExtensionManager] Falha ao sincronizar ${ext.pkg} no Suwayomi:`, e.message);
+          }
+        }
+      }
+
+      // 3. Obter todas as fontes ativas no Suwayomi e registrá-las no OmniYomi
+      const suwSourcesData = await suwayomiService.queryGql(`
+        query {
+          sources {
+            nodes {
+              id
+              name
+              lang
+              isNsfw
+            }
+          }
+        }
+      `);
+
+      const suwSources = suwSourcesData?.sources?.nodes || [];
+      for (const s of suwSources) {
+        if (s.id === '0') continue; // Ignorar Local source do Suwayomi
+
+        // Encontrar extensão correspondente se disponível
+        const matchedExt = extractedList.find(e => (e.sources || []).some((src: any) => String(src.id) === String(s.id)));
+        const pkg = matchedExt ? matchedExt.pkg : 'tachiyomi';
+        const iconUrl = matchedExt?.iconUrl || '/assets/apk-icon.png';
+        const version = matchedExt?.version || '1.0.0';
+
+        const adapterId = `apk:${pkg}:${s.id}`;
+        if (!this.sources.has(adapterId)) {
+          const adapter = new ApkSourceAdapter({
+            pkg,
+            sourceId: String(s.id),
+            name: s.name,
+            version,
+            lang: s.lang || 'all',
+            iconUrl,
+            isNsfw: Boolean(s.isNsfw),
+          });
+          this.sources.set(adapter.id, adapter);
+          db.registerSource(adapter.getManifest());
+          console.log(`[ExtensionManager] Fonte Suwayomi sincronizada e registrada: ${s.name} (${adapter.id})`);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[ExtensionManager] Aviso ao sincronizar com Suwayomi:', err.message);
+    }
   }
 
   public toggleSource(id: string, isEnabled: boolean) {

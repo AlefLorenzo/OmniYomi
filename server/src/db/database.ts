@@ -163,6 +163,12 @@ export class AppDatabase {
       // column already exists
     }
 
+    try {
+      this.db.exec(`ALTER TABLE manga ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;`);
+    } catch {
+      // column already exists
+    }
+
     // Insert default categories if empty
     const catCount = this.db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
     if (catCount.count === 0) {
@@ -270,6 +276,7 @@ export class AppDatabase {
       status: manga.status ?? existing?.status ?? 'UNKNOWN',
       coverUrl: manga.coverUrl ?? existing?.coverUrl ?? '',
       inLibrary: manga.inLibrary ?? existing?.inLibrary ?? false,
+      isFavorite: manga.isFavorite !== undefined ? Boolean(manga.isFavorite) : Boolean(existing?.isFavorite),
       categoryId: manga.categoryId !== undefined ? manga.categoryId : (existing?.categoryId ?? null),
       totalChapters: manga.totalChapters ?? existing?.totalChapters ?? 0,
       unreadCount: manga.unreadCount ?? existing?.unreadCount ?? 0,
@@ -284,11 +291,11 @@ export class AppDatabase {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO manga (
         id, source_id, source_manga_id, title, original_title, alt_titles, description, author, artist, genres,
-        status, cover_url, in_library, category_id, total_chapters, unread_count, downloaded_count,
+        status, cover_url, in_library, is_favorite, category_id, total_chapters, unread_count, downloaded_count,
         last_chapter_number, last_read_chapter_id, last_read_at, created_at, updated_at
       ) VALUES (
         @id, @sourceId, @sourceMangaId, @title, @originalTitle, @altTitles, @description, @author, @artist, @genres,
-        @status, @coverUrl, @inLibrary, @categoryId, @totalChapters, @unreadCount, @downloadedCount,
+        @status, @coverUrl, @inLibrary, @isFavorite, @categoryId, @totalChapters, @unreadCount, @downloadedCount,
         @lastChapterNumber, @lastReadChapterId, @lastReadAt, @createdAt, @updatedAt
       )
     `);
@@ -299,6 +306,7 @@ export class AppDatabase {
       altTitles: JSON.stringify(item.altTitles),
       genres: JSON.stringify(item.genres),
       inLibrary: item.inLibrary ? 1 : 0,
+      isFavorite: item.isFavorite ? 1 : (item.categoryId === 'favorites' ? 1 : 0),
     });
 
     return item;
@@ -315,8 +323,12 @@ export class AppDatabase {
     const params: any[] = [];
 
     if (categoryId && categoryId !== 'all') {
-      query += ' AND category_id = ?';
-      params.push(categoryId);
+      if (categoryId === 'favorites') {
+        query += " AND (category_id = 'favorites' OR is_favorite = 1)";
+      } else {
+        query += ' AND category_id = ?';
+        params.push(categoryId);
+      }
     }
 
     if (search && search.trim()) {
@@ -340,12 +352,32 @@ export class AppDatabase {
     if (categoryId !== undefined) {
       query += ', category_id = ?';
       params.push(categoryId);
+      if (categoryId === 'favorites') {
+        query += ', is_favorite = 1';
+      }
     }
     query += ' WHERE id = ?';
     params.push(id);
 
     this.db.prepare(query).run(...params);
     return true;
+  }
+
+  public setMangaFavorite(id: string, isFavorite: boolean): Manga | null {
+    const existing = this.getMangaById(id);
+    if (!existing) return null;
+
+    const now = Date.now();
+    if (isFavorite) {
+      const targetCategory = existing.categoryId || 'favorites';
+      this.db.prepare('UPDATE manga SET is_favorite = 1, in_library = 1, category_id = ?, updated_at = ? WHERE id = ?')
+        .run(targetCategory, now, id);
+    } else {
+      this.db.prepare('UPDATE manga SET is_favorite = 0, updated_at = ? WHERE id = ?')
+        .run(now, id);
+    }
+
+    return this.getMangaById(id);
   }
 
   // --- Chapter Methods ---
@@ -374,9 +406,22 @@ export class AppDatabase {
     const insertTxn = this.db.transaction((items: Chapter[]) => {
       for (const ch of items) {
         stmt.run({
-          ...ch,
+          id: ch.id,
+          mangaId: ch.mangaId,
+          sourceId: ch.sourceId,
+          sourceChapterId: ch.sourceChapterId,
+          title: ch.title || '',
+          chapterNumber: typeof ch.chapterNumber === 'number' ? ch.chapterNumber : 0,
+          volume: ch.volume !== undefined ? ch.volume : null,
+          releaseDate: ch.releaseDate || (ch as any).date || null,
+          scanlator: ch.scanlator || null,
+          url: ch.url || '',
           isRead: ch.isRead ? 1 : 0,
+          lastPageRead: ch.lastPageRead ?? 0,
+          totalPages: ch.totalPages ?? 0,
           isDownloaded: ch.isDownloaded ? 1 : 0,
+          downloadProgress: ch.downloadProgress ?? 0,
+          downloadedPath: ch.downloadedPath || null,
         });
       }
     });
@@ -730,6 +775,7 @@ export class AppDatabase {
       status: row.status,
       coverUrl: row.cover_url,
       inLibrary: row.in_library === 1,
+      isFavorite: Boolean(row.is_favorite === 1 || row.category_id === 'favorites'),
       categoryId: row.category_id,
       totalChapters: row.total_chapters,
       unreadCount: row.unread_count,

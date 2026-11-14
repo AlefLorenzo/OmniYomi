@@ -10,6 +10,9 @@
     "build:client": "npm --prefix client run build",
     "build:server": "tsc",
     "build": "npm run build:client && npm run build:server",
+    "cap:build": "npm --prefix client run build && npm --prefix client run cap:sync",
+    "cap:sync": "npm --prefix client run cap:sync",
+    "cap:open": "npm --prefix client run cap:open",
     "start": "tsx server/src/index.ts",
     "test": "tsx test/system.test.ts"
   },

@@ -11,6 +11,10 @@ interface CoverCardProps {
 }
 
 export function CoverCard({ title, coverUrl, badges, overlay, onClick, className }: CoverCardProps) {
+  const proxiedUrl = coverUrl && coverUrl.startsWith('http') && !coverUrl.startsWith('/api/proxy')
+    ? `/api/proxy/image?url=${encodeURIComponent(coverUrl)}`
+    : (coverUrl || '');
+
   return (
     <div
       className={cn(
@@ -20,16 +24,30 @@ export function CoverCard({ title, coverUrl, badges, overlay, onClick, className
       )}
       onClick={onClick}
     >
-      <div className="relative aspect-[2/3] w-full">
-        <img
-          src={coverUrl}
-          alt={title}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          onError={e => {
-            (e.target as HTMLImageElement).src = `https://placehold.co/300x450/1a1e29/8b5cf6?text=${encodeURIComponent(title.slice(0, 20))}`;
-          }}
-        />
+      <div className="relative aspect-[2/3] w-full bg-[#121620] flex items-center justify-center">
+        {proxiedUrl ? (
+          <img
+            src={proxiedUrl}
+            alt={title}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={e => {
+              (e.target as HTMLElement).style.display = 'none';
+              const fallback = (e.target as HTMLElement).nextElementSibling as HTMLElement;
+              if (fallback) fallback.style.display = 'flex';
+            }}
+          />
+        ) : null}
+
+        {/* Fallback quando imagem falhar ou estiver ausente */}
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-[#131722] border border-[#242c3d]"
+          style={{ display: proxiedUrl ? 'none' : 'flex' }}
+        >
+          <span className="text-2xl mb-1">📖</span>
+          <span className="text-[11px] font-medium text-gray-400 line-clamp-2">{title}</span>
+          <span className="text-[9px] text-gray-600 mt-1 uppercase">Capa Pendente</span>
+        </div>
         {/* Gradient overlay at bottom */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
 
