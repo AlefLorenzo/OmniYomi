@@ -1,0 +1,38 @@
+{
+  "name": "omniyomi",
+  "version": "1.0.0",
+  "description": "Plataforma completa de leitura, gerenciamento e downloads de mangás e manhwas inspirada no Tachidesk e Tachiyomi",
+  "main": "server/src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev:server": "tsx watch server/src/index.ts",
+    "dev:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
+    "build:server": "tsc",
+    "build": "npm run build:client && npm run build:server",
+    "start": "tsx server/src/index.ts",
+    "test": "tsx test/system.test.ts"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "archiver": "^7.0.1",
+    "axios": "^1.8.4",
+    "better-sqlite3": "^13.1.1",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/archiver": "^6.0.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

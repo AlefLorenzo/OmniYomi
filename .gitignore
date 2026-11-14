@@ -1,0 +1,10 @@
+node_modules
+client/node_modules
+data/downloads/*
+!data/downloads/.gitkeep
+data/omniyomi.db*
+data/local_manga/*
+!data/local_manga/.gitkeep
+.env
+.DS_Store
+Thumbs.db
