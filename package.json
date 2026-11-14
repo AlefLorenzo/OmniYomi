@@ -13,6 +13,8 @@
     "cap:build": "npm --prefix client run build && npm --prefix client run cap:sync",
     "cap:sync": "npm --prefix client run cap:sync",
     "cap:open": "npm --prefix client run cap:open",
+    "serve:apk": "node scripts/serve-apk.js",
+    "serve:apk:download": "node scripts/serve-apk.js --download",
     "start": "tsx server/src/index.ts",
     "test": "tsx test/system.test.ts"
   },

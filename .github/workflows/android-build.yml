@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repositório
         uses: actions/checkout@v4
@@ -77,27 +77,35 @@ jobs:
             sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE_FILE"
           fi
 
-      - name: Configurar Keystore de Assinatura (se fornecido)
-        if: secrets.KEYSTORE_BASE64 != ''
+      # Verifica se a keystore foi configurada como secret e grava o resultado
+      - name: Verificar configuração de Keystore
+        id: keystore_check
         run: |
-          mkdir -p client/android/app/keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > client/android/app/keystore/omniyomi.keystore
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "configured=true" >> $GITHUB_OUTPUT
+            mkdir -p client/android/app/keystore
+            echo "$KEYSTORE_B64" | base64 -d > client/android/app/keystore/omniyomi.keystore
+            echo "Keystore configurada com sucesso."
+          else
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "Nenhuma keystore fornecida — apenas APK debug será gerado."
+          fi
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
 
       - name: Compilar APK Debug
         run: |
           cd client/android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Compilar APK Release (se keystore configurada)
-        if: secrets.KEYSTORE_BASE64 != ''
+      - name: Compilar APK Release (somente se keystore configurada)
+        if: steps.keystore_check.outputs.configured == 'true'
         run: |
           cd client/android
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --no-daemon
         env:
-          KEYSTORE_PATH: keystore/omniyomi.keystore
+          KEYSTORE_PATH: app/keystore/omniyomi.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -106,21 +114,19 @@ jobs:
         id: find_apk
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
+
           DEBUG_APK=$(find client/android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -1)
-          if [ -z "$DEBUG_APK" ]; then
-            DEBUG_APK=$(find client/android -name "*-debug.apk" 2>/dev/null | head -1)
-          fi
-          
-          echo "Debug APK encontrado: $DEBUG_APK"
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
             cp "$DEBUG_APK" "OmniYomi-v${VERSION}-debug.apk"
             echo "DEBUG_OUTPUT=OmniYomi-v${VERSION}-debug.apk" >> $GITHUB_OUTPUT
+            echo "APK Debug: OmniYomi-v${VERSION}-debug.apk"
           fi
 
           RELEASE_APK=$(find client/android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
             cp "$RELEASE_APK" "OmniYomi-v${VERSION}-release.apk"
             echo "RELEASE_OUTPUT=OmniYomi-v${VERSION}-release.apk" >> $GITHUB_OUTPUT
+            echo "APK Release: OmniYomi-v${VERSION}-release.apk"
           fi
 
       - name: Upload APK Debug como artefato
@@ -128,9 +134,10 @@ jobs:
         with:
           name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}-debug
           path: OmniYomi-*-debug.apk
+          if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload APK Release como artefato (se existir)
+      - name: Upload APK Release como artefato
         if: steps.find_apk.outputs.RELEASE_OUTPUT != ''
         uses: actions/upload-artifact@v4
         with:
@@ -146,20 +153,22 @@ jobs:
           tag_name: ${{ github.ref_name }}
           body: |
             ## 📱 OmniYomi v${{ steps.get_version.outputs.VERSION }} — Android APK
-            
+
             Versão oficial do leitor e gerenciador de mangás, manhwas e manhuas OmniYomi para Android.
-            
-            ### 📥 Download do APK
-            Baixe o arquivo `.apk` abaixo e abra em seu celular ou tablet Android para instalar.
-            
-            > **Dica**: No primeiro uso, o Android solicitará permissão para instalar aplicativos de fontes desconhecidas do seu navegador ou gerenciador de arquivos.
-            
-            ### ✨ Recursos
-            - 🌐 Suporte completo a todas as extensões do ecossistema Tachiyomi
-            - 📖 Leitura online e offline com páginas salvas no dispositivo
-            - 📱 Interface mobile 100% responsiva com navegação inferior e suporte a notch
-            - ❤️ Favoritos, histórico e biblioteca sincronizados
-            - 🔄 Atualização automática do aplicativo direto pelo app
+
+            ### 📥 Como instalar
+            1. Baixe o arquivo `.apk` abaixo.
+            2. Abra o arquivo no seu celular Android.
+            3. Se solicitado, permita a instalação de fontes desconhecidas.
+
+            > **Dica**: Habilite "Instalar apps desconhecidos" no navegador ou gerenciador de arquivos usado.
+
+            ### ✨ Recursos desta versão
+            - 🌐 Suporte a extensões Tachiyomi / Keiyoushi
+            - 📖 Leitura online e offline
+            - 📱 Interface responsiva com navegação inferior (Android)
+            - ❤️ Favoritos, histórico e biblioteca
+            - 🔄 Verificador de atualização integrado
           files: |
             OmniYomi-*.apk
           draft: false

@@ -21,7 +21,8 @@ data/suwayomi.log*
 data/extensions/cache/
 data/extensions/extracted/
 
-# Chaves e Segredos
+# APK local (pasta de download)
+apk/*.apk
 *.keystore
 *.jks
 .env
