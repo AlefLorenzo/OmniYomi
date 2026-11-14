@@ -1,0 +1,42 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.all.comikey",
+  "name": "Comikey",
+  "version": "1.6.15",
+  "lang": "en",
+  "hasDex": true,
+  "apkUrl": "https://github.com/keiyoushi/extensions/releases/download/b035310-0/tachiyomi-all.comikey-v1.6.15.apk",
+  "repoUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
+  "sources": [
+    {
+      "id": "2769857481066602061",
+      "name": "Comikey",
+      "lang": "en",
+      "baseUrl": "https://comikey.com"
+    },
+    {
+      "id": "374080003312345029",
+      "name": "Comikey",
+      "lang": "es",
+      "baseUrl": "https://comikey.com"
+    },
+    {
+      "id": "1684620622390751911",
+      "name": "Comikey",
+      "lang": "id",
+      "baseUrl": "https://comikey.com"
+    },
+    {
+      "id": "4174862482785095737",
+      "name": "Comikey",
+      "lang": "pt-BR",
+      "baseUrl": "https://comikey.com"
+    },
+    {
+      "id": "4923846262931005728",
+      "name": "Comikey Brasil",
+      "lang": "pt-BR",
+      "baseUrl": "https://br.comikey.com"
+    }
+  ],
+  "extractedAt": 1794634838918
+}

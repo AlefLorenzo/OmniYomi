@@ -36,6 +36,19 @@ O **OmniYomi** foi desenvolvido para proporcionar controle absoluto ao usuário 
 ## 🌟 Funcionalidades Principais
 
 ### 1. Sistema de Fontes e Extensões Modulares
+- **Suporte Multiformato a Repositórios Tachiyomi / Mihon / Suwayomi**:
+  - **Protocol Buffers (`index.pb`)**: Decodificação nativa com descompressão Gzip automática (usado por repositórios modernos como **FelipeGFA** e **Cursed Yūzōnō**).
+  - **JSON Moderno (`index.json`)**: Formato hierárquico com manifesto e metadados completos (usado pelo catálogo principal do **Keiyoushi** com mais de 1.600 extensões).
+  - **JSON Legado (`index.min.json`)**: Formato clássico em array (usado por **Suwayomi** e **Kavita**).
+- **Repositórios Pré-configurados**:
+  1. **Keiyoushi**: Maior catálogo comunitário global com 1.600+ extensões.
+  2. **FelipeGFA**: Projeto com foco especial em extensões e scanlations em Português (PT-BR).
+  3. **Cursed Yūzōnō**: Catálogo adicional com fontes especiais.
+  4. **Kavita**: Extensões para integração com servidores de quadrinhos Kavita.
+  5. **Suwayomi Official**: Extensão de conexão com servidores Suwayomi/Tachidesk.
+- **Descompactador e Extrator de APKs**:
+  - Baixa e descompacta arquivos `.apk` com extração de `classes.dex`, `AndroidManifest.xml`, ícones e fontes.
+  - Carrega as fontes em tempo real através do **`ApkSourceAdapter`** sem necessidade de reiniciar.
 - **MangaDex Oficial (API v5)**: Milhares de títulos em múltiplos idiomas (Português PT-BR, Inglês, Espanhol), sinopses, capas em alta definição e lista completa de capítulos.
 - **WeebCentral**: Extensão dinâmica para lançamentos rápidos de manhwas e webtoons populares.
 - **Armazenamento Local (Offline)**: Suporte a arquivos locais em formato `.cbz`, `.zip` e pastas com imagens (`.jpg`, `.png`, `.webp`). Basta adicionar seus títulos na pasta `data/local_manga/` para leitura instantânea sem internet!

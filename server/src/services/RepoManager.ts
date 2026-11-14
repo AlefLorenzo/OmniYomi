@@ -5,6 +5,7 @@ import AdmZip from 'adm-zip';
 import { fileURLToPath } from 'url';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
+import { decodeProtobufRepo } from './ProtobufRepoDecoder.js';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,124 +23,193 @@ export class RepoManager {
   private CACHE_TTL = 30 * 60 * 1000; // 30 minutes in memory
 
   public async fetchRepoExtensions(repoUrl: string): Promise<RepoExtension[]> {
-    const cached = this.cache.get(repoUrl);
+    const cleanUrl = repoUrl.trim();
+    const cached = this.cache.get(cleanUrl);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       return cached.extensions;
     }
 
-    try {
-      const res = await axios.get(repoUrl, {
-        headers: {
-          'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0',
-          'Accept': 'application/json',
-        },
-        timeout: 20000,
-      });
+    const extractedList = db.getExtractedExtensions();
+    const extractedPkgs = new Set(extractedList.map((e: any) => e.pkg));
 
-      const data = res.data;
-      const extensions: RepoExtension[] = [];
-      const extractedList = db.getExtractedExtensions();
-      const extractedPkgs = new Set(extractedList.map((e: any) => e.pkg));
+    // Try fetching with smart format fallback (.pb, index.json, index.min.json)
+    const candidateUrls = this.resolveCandidateUrls(cleanUrl);
+    let lastError: any = null;
 
-      // Derive base URL for relative assets
-      const urlObj = new URL(repoUrl);
-      const basePath = repoUrl.substring(0, repoUrl.lastIndexOf('/'));
+    for (const url of candidateUrls) {
+      try {
+        let extensions: RepoExtension[] = [];
 
-      // Case A: Legacy format (index.min.json - Array of objects)
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          const pkg = item.pkg || item.packageName;
-          if (!pkg) continue;
-
-          let apkUrl = item.apk || item.apkUrl || '';
-          if (apkUrl && !apkUrl.startsWith('http')) {
-            apkUrl = `${basePath}/apk/${apkUrl}`;
-          }
-
-          let iconUrl = item.icon || item.iconUrl || '';
-          if (!iconUrl) {
-            iconUrl = `${basePath}/icon/${pkg}.png`;
-          } else if (!iconUrl.startsWith('http')) {
-            iconUrl = `${basePath}/${iconUrl}`;
-          }
-
-          const sources: RepoExtensionSource[] = (item.sources || []).map((s: any) => ({
-            id: String(s.id),
-            name: s.name || item.name,
-            lang: s.lang || s.language || item.lang || 'all',
-            baseUrl: s.baseUrl || s.homeUrl || '',
-          }));
-
-          extensions.push({
-            id: pkg,
-            pkg,
-            name: item.name,
-            version: item.version || item.versionName || '1.0.0',
-            lang: item.lang || item.language || 'all',
-            iconUrl,
-            apkUrl,
-            isNsfw: item.nsfw === 1 || item.contentWarning?.includes('NSFW'),
-            repoUrl,
-            repoName: urlObj.hostname,
-            sources,
-            isInstalled: extractedPkgs.has(pkg),
-            isExtracted: extractedPkgs.has(pkg),
+        if (url.endsWith('.pb')) {
+          // Protocol Buffer binary format
+          const res = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 25000,
+            headers: { 'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0' },
           });
-        }
-      }
-      // Case B: Modern format (index.json with extensionList)
-      else if (data && typeof data === 'object') {
-        const repoName = data.name || urlObj.hostname;
-        const list = data.extensionList?.extensions || data.extensions || [];
 
-        for (const item of list) {
-          const pkg = item.packageName || item.pkg;
-          if (!pkg) continue;
-
-          let apkUrl = item.resources?.apkUrl || item.apk || '';
-          if (apkUrl && !apkUrl.startsWith('http')) {
-            apkUrl = `${basePath}/${apkUrl}`;
-          }
-
-          let iconUrl = item.resources?.iconUrl || item.icon || '';
-          if (!iconUrl) {
-            iconUrl = `${basePath}/icon/${pkg}.png`;
-          } else if (!iconUrl.startsWith('http')) {
-            iconUrl = `${basePath}/${iconUrl}`;
-          }
-
-          const sources: RepoExtensionSource[] = (item.sources || []).map((s: any) => ({
-            id: String(s.id),
-            name: s.name || item.name,
-            lang: s.lang || s.language || 'all',
-            baseUrl: s.baseUrl || s.homeUrl || '',
-          }));
-
-          extensions.push({
-            id: pkg,
-            pkg,
-            name: item.name,
-            version: item.versionName || item.version || '1.0.0',
-            lang: sources[0]?.lang || 'all',
-            iconUrl,
-            apkUrl,
-            isNsfw: item.contentWarning?.includes('NSFW') || false,
-            repoUrl,
-            repoName,
-            sources,
-            isInstalled: extractedPkgs.has(pkg),
-            isExtracted: extractedPkgs.has(pkg),
+          const buffer = Buffer.from(res.data);
+          extensions = decodeProtobufRepo(buffer, url);
+        } else {
+          // JSON format (index.min.json or index.json)
+          const res = await axios.get(url, {
+            timeout: 25000,
+            headers: {
+              'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0',
+              'Accept': 'application/json',
+            },
           });
-        }
-      }
 
-      this.cache.set(repoUrl, { extensions, timestamp: Date.now() });
-      db.updateRepoSynced(repoUrl);
-      return extensions;
-    } catch (err: any) {
-      console.error(`Erro ao carregar repositório de extensões ${repoUrl}:`, err.message);
-      throw new Error(`Falha ao carregar repositório: ${err.message}`);
+          const data = res.data;
+          const urlObj = new URL(url);
+          const basePath = url.substring(0, url.lastIndexOf('/'));
+
+          // Check if index.min.json returned an "outdated / update to mihon" stub
+          if (Array.isArray(data) && data.length <= 2 && data.some(d => d.name?.includes('Mihon') || d.name?.includes('Outdated'))) {
+            // Try fetching index.json in the same folder instead
+            const indexJsonUrl = `${basePath}/index.json`;
+            try {
+              const fullRes = await axios.get(indexJsonUrl, { timeout: 25000 });
+              if (fullRes.data?.extensionList?.extensions?.length > 10) {
+                return this.parseModernJson(fullRes.data, indexJsonUrl, extractedPkgs);
+              }
+            } catch {
+              // continue
+            }
+          }
+
+          if (Array.isArray(data)) {
+            extensions = this.parseLegacyJson(data, url, basePath, urlObj.hostname, extractedPkgs);
+          } else if (data && typeof data === 'object') {
+            extensions = this.parseModernJson(data, url, extractedPkgs);
+          }
+        }
+
+        if (extensions.length > 0) {
+          // Cross-reference extracted state
+          for (const ext of extensions) {
+            ext.isExtracted = extractedPkgs.has(ext.pkg);
+            ext.isInstalled = extractedPkgs.has(ext.pkg);
+          }
+
+          this.cache.set(cleanUrl, { extensions, timestamp: Date.now() });
+          db.updateRepoSynced(cleanUrl);
+          return extensions;
+        }
+      } catch (err: any) {
+        lastError = err;
+      }
     }
+
+    throw new Error(`Falha ao extrair extensões de ${cleanUrl}: ${lastError?.message || 'Nenhuma extensão encontrada'}`);
+  }
+
+  private resolveCandidateUrls(url: string): string[] {
+    const urls = [url];
+    if (url.endsWith('/')) {
+      urls.push(`${url}index.json`, `${url}index.min.json`, `${url}index.pb`);
+    } else if (url.endsWith('index.min.json')) {
+      urls.push(url.replace('index.min.json', 'index.json'), url.replace('index.min.json', 'index.pb'));
+    } else if (url.endsWith('index.pb')) {
+      urls.push(url.replace('index.pb', 'index.json'), url.replace('index.pb', 'index.min.json'));
+    }
+    return urls;
+  }
+
+  private parseLegacyJson(data: any[], url: string, basePath: string, hostname: string, extractedPkgs: Set<string>): RepoExtension[] {
+    const extensions: RepoExtension[] = [];
+
+    for (const item of data) {
+      const pkg = item.pkg || item.packageName;
+      if (!pkg) continue;
+
+      let apkUrl = item.apk || item.apkUrl || '';
+      if (apkUrl && !apkUrl.startsWith('http')) {
+        apkUrl = `${basePath}/apk/${apkUrl}`;
+      }
+
+      let iconUrl = item.icon || item.iconUrl || '';
+      if (!iconUrl) {
+        iconUrl = `${basePath}/icon/${pkg}.png`;
+      } else if (!iconUrl.startsWith('http')) {
+        iconUrl = `${basePath}/${iconUrl}`;
+      }
+
+      const sources: RepoExtensionSource[] = (item.sources || []).map((s: any) => ({
+        id: String(s.id),
+        name: s.name || item.name,
+        lang: s.lang || s.language || item.lang || 'all',
+        baseUrl: s.baseUrl || s.homeUrl || '',
+      }));
+
+      extensions.push({
+        id: pkg,
+        pkg,
+        name: item.name,
+        version: item.version || item.versionName || '1.0.0',
+        lang: item.lang || item.language || 'all',
+        iconUrl,
+        apkUrl,
+        isNsfw: item.nsfw === 1 || Boolean(item.contentWarning?.includes('NSFW')),
+        repoUrl: url,
+        repoName: hostname,
+        sources,
+        isInstalled: extractedPkgs.has(pkg),
+        isExtracted: extractedPkgs.has(pkg),
+      });
+    }
+
+    return extensions;
+  }
+
+  private parseModernJson(data: any, url: string, extractedPkgs: Set<string>): RepoExtension[] {
+    const extensions: RepoExtension[] = [];
+    const urlObj = new URL(url);
+    const basePath = url.substring(0, url.lastIndexOf('/'));
+    const repoName = data.name || urlObj.hostname;
+    const list = data.extensionList?.extensions || data.extensions || [];
+
+    for (const item of list) {
+      const pkg = item.packageName || item.pkg;
+      if (!pkg) continue;
+
+      let apkUrl = item.resources?.apkUrl || item.apk || '';
+      if (apkUrl && !apkUrl.startsWith('http')) {
+        apkUrl = `${basePath}/${apkUrl}`;
+      }
+
+      let iconUrl = item.resources?.iconUrl || item.icon || '';
+      if (!iconUrl) {
+        iconUrl = `${basePath}/icon/${pkg}.png`;
+      } else if (!iconUrl.startsWith('http')) {
+        iconUrl = `${basePath}/${iconUrl}`;
+      }
+
+      const sources: RepoExtensionSource[] = (item.sources || []).map((s: any) => ({
+        id: String(s.id),
+        name: s.name || item.name,
+        lang: s.lang || s.language || 'all',
+        baseUrl: s.baseUrl || s.homeUrl || '',
+      }));
+
+      extensions.push({
+        id: pkg,
+        pkg,
+        name: item.name,
+        version: item.versionName || item.version || '1.0.0',
+        lang: sources[0]?.lang || 'all',
+        iconUrl,
+        apkUrl,
+        isNsfw: Boolean(item.contentWarning?.includes('NSFW')),
+        repoUrl: url,
+        repoName,
+        sources,
+        isInstalled: extractedPkgs.has(pkg),
+        isExtracted: extractedPkgs.has(pkg),
+      });
+    }
+
+    return extensions;
   }
 
   public async getAllExtensions(query?: string, lang?: string): Promise<RepoExtension[]> {
@@ -155,7 +225,15 @@ export class RepoManager {
       }
     }
 
-    let filtered = allExtensions;
+    // Deduplicate by package name
+    const uniqueMap = new Map<string, RepoExtension>();
+    for (const ext of allExtensions) {
+      if (!uniqueMap.has(ext.pkg)) {
+        uniqueMap.set(ext.pkg, ext);
+      }
+    }
+
+    let filtered = Array.from(uniqueMap.values());
 
     if (lang && lang !== 'all') {
       const l = lang.toLowerCase();

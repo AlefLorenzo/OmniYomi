@@ -1,0 +1,30 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.all.kavita",
+  "name": "Tachiyomi: Kavita",
+  "version": "1.4.29",
+  "lang": "all",
+  "hasDex": true,
+  "apkUrl": "https://raw.githubusercontent.com/Kareadita/tach-extension/repo/apk/tachiyomi-all.kavita-v1.4.29.apk",
+  "repoUrl": "https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json",
+  "sources": [
+    {
+      "id": "7266875667263635239",
+      "name": "Kavita (1)",
+      "lang": "all",
+      "baseUrl": ""
+    },
+    {
+      "id": "3764816291200082561",
+      "name": "Kavita (2)",
+      "lang": "all",
+      "baseUrl": ""
+    },
+    {
+      "id": "778637366235559582",
+      "name": "Kavita (3)",
+      "lang": "all",
+      "baseUrl": ""
+    }
+  ],
+  "extractedAt": 1794635228405
+}

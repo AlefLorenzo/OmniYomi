@@ -199,6 +199,28 @@ async function runTestSuite() {
     assert.ok(exts[0].sources.length > 0, 'Fontes da extensão devem ser extraídas');
   });
 
+  // 14. Protocol Buffers Repositories (index.pb extraction)
+  await test('Decodificação e extração de repositórios Protocol Buffers (.pb) - Cursed Yūzōnō & FelipeGFA', async () => {
+    const { repoManager } = await import('../server/src/services/RepoManager.js');
+    const pbUrl = 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb';
+    const exts = await repoManager.fetchRepoExtensions(pbUrl);
+
+    assert.ok(exts.length > 0, 'Deve extrair extensões do arquivo index.pb compactado');
+    const ehentai = exts.find(e => e.pkg.includes('ehentai'));
+    assert.ok(ehentai, 'Deve encontrar extensão ehentai no arquivo .pb');
+    assert.ok(ehentai.sources.length > 0, 'Deve conter fontes com idiomas decodificados');
+  });
+
+  // 15. Kavita Repository (index.min.json)
+  await test('Extração de extensões do repositório Kavita', async () => {
+    const { repoManager } = await import('../server/src/services/RepoManager.js');
+    const kavitaUrl = 'https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json';
+    const exts = await repoManager.fetchRepoExtensions(kavitaUrl);
+
+    assert.ok(exts.length > 0, 'Deve extrair extensões do repositório Kavita');
+    assert.ok(exts.some(e => e.pkg.includes('kavita')), 'Deve conter extensão do Kavita');
+  });
+
   console.log('\n======================================================');
   console.log(`  RESULTADO: ${passed}/${total} TESTES APROVADOS! (${Math.round((passed / total) * 100)}%)`);
   console.log('======================================================\n');

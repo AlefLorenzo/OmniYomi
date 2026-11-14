@@ -168,12 +168,22 @@ export class AppDatabase {
       insertCat.run('favorites', 'Favoritos', 4);
     }
 
-    // Insert default extension repositories if empty
-    const repoCount = this.db.prepare('SELECT COUNT(*) as count FROM extension_repos').get() as { count: number };
-    if (repoCount.count === 0) {
-      const insertRepo = this.db.prepare('INSERT INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)');
-      insertRepo.run('https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json', 'Suwayomi Official Repo');
-      insertRepo.run('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json', 'Keiyoushi Extensions Repo');
+    // Insert default extension repositories
+    this.ensureDefaultRepos();
+  }
+
+  private ensureDefaultRepos() {
+    const repos = [
+      { url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json', name: 'Keiyoushi (Principal)' },
+      { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA (Foco em PT-BR)' },
+      { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō' },
+      { url: 'https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json', name: 'Kavita Extensions' },
+      { url: 'https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json', name: 'Suwayomi Official Repo' },
+    ];
+
+    const insertRepo = this.db.prepare('INSERT OR IGNORE INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)');
+    for (const r of repos) {
+      insertRepo.run(r.url, r.name);
     }
 
     // Default settings
