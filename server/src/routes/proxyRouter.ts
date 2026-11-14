@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
 import AdmZip from 'adm-zip';
+import { coverManager } from '../services/CoverManager.js';
 
 export const proxyRouter = Router();
 
-// Stream remote images with headers
+// Stream remote images with headers, caching and magic byte validation
 proxyRouter.get('/proxy/image', async (req, res) => {
   const imageUrl = req.query.url as string;
   const referer = req.query.referer as string || '';
@@ -16,27 +16,13 @@ proxyRouter.get('/proxy/image', async (req, res) => {
   }
 
   try {
-    const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    };
+    const { filePath, contentType, isCached } = await coverManager.getOrFetchCover(imageUrl, referer);
 
-    if (referer) {
-      headers['Referer'] = referer;
-    }
-
-    const response = await axios({
-      method: 'GET',
-      url: imageUrl,
-      responseType: 'stream',
-      headers,
-      timeout: 20000,
-    });
-
-    const contentType = String(response.headers['content-type'] || 'image/jpeg');
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable'); // Cache for 7 days
+    res.setHeader('X-Cover-Cached', isCached ? 'true' : 'false');
 
-    response.data.pipe(res);
+    fs.createReadStream(filePath).pipe(res);
   } catch (err: any) {
     res.status(502).send(`Falha ao carregar imagem: ${err.message}`);
   }
@@ -54,6 +40,7 @@ proxyRouter.get('/proxy/local-file', (req, res) => {
   if (ext === '.png') contentType = 'image/png';
   else if (ext === '.webp') contentType = 'image/webp';
   else if (ext === '.gif') contentType = 'image/gif';
+  else if (ext === '.avif') contentType = 'image/avif';
 
   res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'public, max-age=31536000');
@@ -85,6 +72,7 @@ proxyRouter.get('/proxy/local-archive-page', (req, res) => {
     let contentType = 'image/jpeg';
     if (ext === '.png') contentType = 'image/png';
     else if (ext === '.webp') contentType = 'image/webp';
+    else if (ext === '.avif') contentType = 'image/avif';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=31536000');

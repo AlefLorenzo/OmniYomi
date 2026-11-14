@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BaseSource } from './BaseSource.js';
 import { Manga, Chapter, PageImage, MangaListResult, FilterDefinition } from '../types/index.js';
+import { normalizeMangaTitles } from '../services/TitleNormalizer.js';
 
 export class MangaDexSource extends BaseSource {
   id = 'mangadex';
@@ -184,8 +185,8 @@ export class MangaDexSource extends BaseSource {
       }
 
       offset += limit;
-      // Safeguard against infinite loops
-      if (offset >= 1000) break;
+      // Safeguard against infinite loops (permite até 10.000 capítulos para obras longas)
+      if (offset >= 10000) break;
     }
 
     return chapters;
@@ -211,17 +212,20 @@ export class MangaDexSource extends BaseSource {
     const attr = item.attributes;
     const mangaId = `${this.id}:${item.id}`;
 
-    // Extract title (English or first available)
-    const title = attr.title.en || Object.values(attr.title)[0] || 'Sem Título';
+    // Extract raw title (prefer PT-BR, then EN, then first available)
+    const rawMainTitle = attr.title?.['pt-br'] || attr.title?.pt || attr.title?.en || Object.values(attr.title || {})[0] || 'Sem Título';
 
     // Extract alt titles
-    const altTitles: string[] = [];
+    const rawAltTitles: string[] = [];
     if (attr.altTitles && Array.isArray(attr.altTitles)) {
       for (const at of attr.altTitles) {
         const val = Object.values(at)[0] as string;
-        if (val && !altTitles.includes(val)) altTitles.push(val);
+        if (val && !rawAltTitles.includes(val)) rawAltTitles.push(val);
       }
     }
+
+    // Normalização rigorosa: Garante título principal em PT-BR ou EN
+    const { title, originalTitle, altTitles } = normalizeMangaTitles(String(rawMainTitle), rawAltTitles, 'pt-br');
 
     // Extract description
     const description = attr.description?.pt || attr.description?.['pt-br'] || attr.description?.en || Object.values(attr.description || {})[0] || '';
@@ -260,8 +264,10 @@ export class MangaDexSource extends BaseSource {
     return {
       id: mangaId,
       sourceId: this.id,
+      sourceName: this.name,
       sourceMangaId: item.id,
       title,
+      originalTitle,
       altTitles: altTitles.slice(0, 5),
       description: typeof description === 'string' ? description : '',
       author,

@@ -25,6 +25,8 @@ export const api = {
   checkSourceHealth: (id: string) => request<any>(`/sources/${id}/health`),
   toggleSource: (id: string, enabled: boolean) => request<any>(`/sources/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   globalSearch: (q: string) => request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`),
+  deduplicatedSearch: (q: string) => request<any>(`/sources/search/deduplicated?q=${encodeURIComponent(q)}`),
+  getFlareSolverrStatus: () => request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status'),
 
   // Extensions & Repos
   getAvailableExtensions: () => request<any[]>('/extensions/available'),

@@ -3,6 +3,8 @@ import * as cheerio from 'cheerio';
 import { BaseSource } from './BaseSource.js';
 import { Manga, Chapter, PageImage, MangaListResult } from '../types/index.js';
 import { db } from '../db/database.js';
+import { normalizeMangaTitles } from '../services/TitleNormalizer.js';
+import { flareSolverrService } from '../services/FlareSolverrService.js';
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -529,41 +531,82 @@ export class ApkSourceAdapter extends BaseSource {
 
   private async handleLiveWebScraperChapters(sourceMangaId: string): Promise<Chapter[]> {
     const url = `${this.baseUrl}/${sourceMangaId}`;
-    const res = await axios.get(url, { headers: { 'User-Agent': DEFAULT_UA }, timeout: 12000 });
-    const $ = cheerio.load(res.data);
+    let html = '';
+
+    try {
+      const res = await axios.get(url, { headers: { 'User-Agent': DEFAULT_UA }, timeout: 12000 });
+      html = res.data;
+    } catch (err: any) {
+      // Se protegido por Cloudflare, tentar FlareSolverr
+      if (err.response?.status === 403 || err.response?.status === 503) {
+        try {
+          const solved = await flareSolverrService.solveChallenge(url);
+          html = solved.html;
+        } catch {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    const $ = cheerio.load(html);
     const chapters: Chapter[] = [];
     const seen = new Set<string>();
 
-    $('.wp-manga-chapter a, ul.sub-chap a, li a[href*="chapter"], .eph-num a, .cl-item a').each((i, el) => {
-      const href = $(el).attr('href') || '';
-      const title = $(el).text().trim() || `Capítulo ${i + 1}`;
-      const chId = href.replace(this.baseUrl, '').replace(/^\/+|\/+$/g, '');
+    const extractFromCheerio = ($el: cheerio.CheerioAPI) => {
+      $el('.wp-manga-chapter a, ul.sub-chap a, li a[href*="chapter"], .eph-num a, .cl-item a, .chapter-list a').each((i, el) => {
+        const href = $el(el).attr('href') || '';
+        const title = $el(el).text().trim() || `Capítulo ${i + 1}`;
+        const chId = href.replace(this.baseUrl, '').replace(/^\/+|\/+$/g, '');
 
-      const match = title.match(/(?:ch(?:apter)?\.?|\b)\s*([0-9]+(?:\.[0-9]+)?)/i);
-      const chapterNumber = match ? parseFloat(match[1]) : i + 1;
+        const match = title.match(/(?:ch(?:apter)?\.?|\b)\s*([0-9]+(?:\.[0-9]+)?)/i);
+        const chapterNumber = match ? parseFloat(match[1]) : i + 1;
 
-      if (chId && !seen.has(chId)) {
-        seen.add(chId);
-        chapters.push({
-          id: `${this.id}:${sourceMangaId}:${chId}`,
-          mangaId: `${this.id}:${sourceMangaId}`,
-          sourceId: this.id,
-          sourceChapterId: chId,
-          title,
-          chapterNumber,
-          volume: null,
-          releaseDate: null,
-          scanlator: null,
-          url: href.startsWith('http') ? href : `${this.baseUrl}/${chId}`,
-          isRead: false,
-          lastPageRead: 0,
-          totalPages: 0,
-          isDownloaded: false,
-          downloadProgress: 0,
-          downloadedPath: null,
-        });
+        if (chId && !seen.has(chId) && !href.includes('comment')) {
+          seen.add(chId);
+          chapters.push({
+            id: `${this.id}:${sourceMangaId}:${chId}`,
+            mangaId: `${this.id}:${sourceMangaId}`,
+            sourceId: this.id,
+            sourceChapterId: chId,
+            title,
+            chapterNumber,
+            volume: null,
+            releaseDate: null,
+            scanlator: null,
+            url: href.startsWith('http') ? href : `${this.baseUrl}/${chId}`,
+            isRead: false,
+            lastPageRead: 0,
+            totalPages: 0,
+            isDownloaded: false,
+            downloadProgress: 0,
+            downloadedPath: null,
+          });
+        }
+      });
+    };
+
+    extractFromCheerio($);
+
+    // Tentativa de buscar capítulos completos via Madara AJAX se a lista for curta ou paginada
+    try {
+      const ajaxUrl = `${this.baseUrl}/wp-admin/admin-ajax.php`;
+      const mangaPostId = $('input.rating-post-id, #manga-chapters-holder').attr('data-id');
+      if (mangaPostId) {
+        const ajaxRes = await axios.post(
+          ajaxUrl,
+          new URLSearchParams({ action: 'manga_get_chapters', manga: mangaPostId }).toString(),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': DEFAULT_UA }, timeout: 10000 }
+        );
+        if (ajaxRes.data) {
+          const $ajax = cheerio.load(ajaxRes.data);
+          extractFromCheerio($ajax);
+        }
       }
-    });
+    } catch {
+      // continua com capítulos extraídos
+    }
 
     return chapters;
   }
@@ -621,18 +664,19 @@ export class ApkSourceAdapter extends BaseSource {
         const coverRel = item.relationships?.find((r: any) => r.type === 'cover_art');
         const fileName = coverRel?.attributes?.fileName;
         const coverUrl = fileName ? `https://uploads.mangadex.org/covers/${item.id}/${fileName}.512.jpg` : '';
-        const title = item.attributes?.title?.en ||
-                      item.attributes?.title?.['pt-br'] ||
-                      Object.values(item.attributes?.title || {})[0] ||
-                      'Sem título';
+        const rawTitle = item.attributes?.title?.['pt-br'] || item.attributes?.title?.pt || item.attributes?.title?.en || Object.values(item.attributes?.title || {})[0] || 'Sem título';
+        const rawAlts = (item.attributes?.altTitles || []).map((at: any) => Object.values(at)[0]).filter(Boolean);
+        const { title, originalTitle, altTitles } = normalizeMangaTitles(String(rawTitle), rawAlts, targetLang);
         const desc = item.attributes?.description?.['pt-br'] || item.attributes?.description?.en || '';
 
         return {
           id: `${this.id}:${item.id}`,
           sourceId: this.id,
+          sourceName: this.name,
           sourceMangaId: item.id,
-          title: String(title),
-          altTitles: [],
+          title,
+          originalTitle,
+          altTitles,
           description: desc,
           author: 'MangaDex Bridge',
           artist: 'MangaDex Bridge',
@@ -680,18 +724,19 @@ export class ApkSourceAdapter extends BaseSource {
         const coverRel = item.relationships?.find((r: any) => r.type === 'cover_art');
         const fileName = coverRel?.attributes?.fileName;
         const coverUrl = fileName ? `https://uploads.mangadex.org/covers/${item.id}/${fileName}.512.jpg` : '';
-        const title = item.attributes?.title?.en ||
-                      item.attributes?.title?.['pt-br'] ||
-                      Object.values(item.attributes?.title || {})[0] ||
-                      'Sem título';
+        const rawTitle = item.attributes?.title?.['pt-br'] || item.attributes?.title?.pt || item.attributes?.title?.en || Object.values(item.attributes?.title || {})[0] || 'Sem título';
+        const rawAlts = (item.attributes?.altTitles || []).map((at: any) => Object.values(at)[0]).filter(Boolean);
+        const { title, originalTitle, altTitles } = normalizeMangaTitles(String(rawTitle), rawAlts, targetLang);
         const desc = item.attributes?.description?.['pt-br'] || item.attributes?.description?.en || '';
 
         return {
           id: `${this.id}:${item.id}`,
           sourceId: this.id,
+          sourceName: this.name,
           sourceMangaId: item.id,
-          title: String(title),
-          altTitles: [],
+          title,
+          originalTitle,
+          altTitles,
           description: desc,
           author: 'MangaDex Bridge',
           artist: 'MangaDex Bridge',
@@ -831,13 +876,17 @@ export class ApkSourceAdapter extends BaseSource {
     };
   }
 
-  private buildMangaItem(idPart: string, title: string, cover: string, author: string = 'Desconhecido'): Manga {
+  private buildMangaItem(idPart: string, rawTitle: string, cover: string, author: string = 'Desconhecido', rawAlts: string[] = []): Manga {
+    const { title, originalTitle, altTitles } = normalizeMangaTitles(rawTitle, rawAlts, this.getTargetLanguage());
+
     return {
       id: `${this.id}:${idPart}`,
       sourceId: this.id,
+      sourceName: this.name,
       sourceMangaId: idPart,
       title,
-      altTitles: [],
+      originalTitle,
+      altTitles,
       description: '',
       author,
       artist: author,

@@ -3,8 +3,10 @@ export type PublicationStatus = 'ONGOING' | 'COMPLETED' | 'HIATUS' | 'CANCELLED'
 export interface Manga {
   id: string; // usually `${sourceId}:${sourceMangaId}`
   sourceId: string;
+  sourceName?: string;
   sourceMangaId: string;
-  title: string;
+  title: string;              // Obrigatório em PT-BR ou EN
+  originalTitle?: string;     // Título original (pode estar em japonês, coreano, etc.)
   altTitles: string[];
   description: string;
   author: string;
@@ -98,6 +100,8 @@ export interface AppSettings {
   pageSpacing: number;
   autoMarkReadPercent: number;
   port: number;
+  flaresolverrUrl?: string;
+  flaresolverrEnabled?: boolean;
 }
 
 export interface FilterOption {

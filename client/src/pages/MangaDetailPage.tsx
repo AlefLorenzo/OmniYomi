@@ -191,10 +191,24 @@ export function MangaDetailPage() {
 
         {/* Info */}
         <div className="flex-1 space-y-3">
-          <h1 className="text-2xl font-bold text-white leading-tight">{manga.title}</h1>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs bg-[#242c3d] text-purple-300 border border-purple-800/40 px-2 py-0.5 rounded font-medium">
+                Fonte: {manga.sourceName || manga.sourceId}
+              </span>
+            </div>
+            <h1 className="text-2xl font-bold text-white leading-tight">{manga.title}</h1>
+            {manga.originalTitle && (
+              <p className="text-sm text-gray-400 italic">
+                <span className="text-gray-500 font-normal">Título original:</span> {manga.originalTitle}
+              </p>
+            )}
+          </div>
 
           {manga.altTitles?.length > 0 && (
-            <p className="text-xs text-gray-500">{manga.altTitles[0]}</p>
+            <p className="text-xs text-gray-500 truncate" title={manga.altTitles.join(', ')}>
+              <span className="text-gray-600">Também conhecido como:</span> {manga.altTitles.slice(0, 3).join(' • ')}
+            </p>
           )}
 
           <div className="flex flex-wrap gap-4 text-sm">

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { db } from '../db/database.js';
+import { deduplicationService } from '../services/DeduplicationService.js';
+import { flareSolverrService } from '../services/FlareSolverrService.js';
 
 export const sourcesRouter = Router();
 
@@ -95,4 +97,35 @@ sourcesRouter.get('/search/global', async (req, res) => {
 
   const results = await Promise.all(searchPromises);
   res.json({ query, results });
+});
+
+// Deduplicated search across sources
+sourcesRouter.get('/search/deduplicated', async (req, res) => {
+  const query = (req.query.q as string || '').trim();
+  if (!query) {
+    return res.json({ groups: [] });
+  }
+
+  const activeSources = extensionManager.getAllSources().filter(s => s.isEnabled);
+  const searchPromises = activeSources.map(async s => {
+    const live = extensionManager.getSource(s.id);
+    if (!live) return [];
+    try {
+      const searchRes = await live.search(query, 1);
+      return searchRes.manga;
+    } catch {
+      return [];
+    }
+  });
+
+  const allMangaArrays = await Promise.all(searchPromises);
+  const flattened = allMangaArrays.flat();
+  const groups = deduplicationService.groupMangaAcrossSources(flattened);
+  res.json({ query, totalSources: activeSources.length, groups });
+});
+
+// FlareSolverr status
+sourcesRouter.get('/flaresolverr/status', async (req, res) => {
+  const status = await flareSolverrService.checkHealth();
+  res.json(status);
 });

@@ -157,6 +157,12 @@ export class AppDatabase {
       CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
     `);
 
+    try {
+      this.db.exec(`ALTER TABLE manga ADD COLUMN original_title TEXT;`);
+    } catch {
+      // column already exists
+    }
+
     // Insert default categories if empty
     const catCount = this.db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
     if (catCount.count === 0) {
@@ -226,6 +232,8 @@ export class AppDatabase {
       pageSpacing: parseInt(map.get('pageSpacing') || '0', 10),
       autoMarkReadPercent: parseInt(map.get('autoMarkReadPercent') || '85', 10),
       port: parseInt(map.get('port') || '4567', 10),
+      flaresolverrUrl: map.get('flaresolverrUrl') || 'http://localhost:8191/v1',
+      flaresolverrEnabled: map.get('flaresolverrEnabled') === 'true',
     };
   }
 
@@ -250,8 +258,10 @@ export class AppDatabase {
     const item: Manga = {
       id: manga.id,
       sourceId: manga.sourceId,
+      sourceName: manga.sourceName ?? existing?.sourceName,
       sourceMangaId: manga.sourceMangaId,
       title: manga.title,
+      originalTitle: manga.originalTitle ?? existing?.originalTitle,
       altTitles: manga.altTitles ?? existing?.altTitles ?? [],
       description: manga.description ?? existing?.description ?? '',
       author: manga.author ?? existing?.author ?? '',
@@ -273,11 +283,11 @@ export class AppDatabase {
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO manga (
-        id, source_id, source_manga_id, title, alt_titles, description, author, artist, genres,
+        id, source_id, source_manga_id, title, original_title, alt_titles, description, author, artist, genres,
         status, cover_url, in_library, category_id, total_chapters, unread_count, downloaded_count,
         last_chapter_number, last_read_chapter_id, last_read_at, created_at, updated_at
       ) VALUES (
-        @id, @sourceId, @sourceMangaId, @title, @altTitles, @description, @author, @artist, @genres,
+        @id, @sourceId, @sourceMangaId, @title, @originalTitle, @altTitles, @description, @author, @artist, @genres,
         @status, @coverUrl, @inLibrary, @categoryId, @totalChapters, @unreadCount, @downloadedCount,
         @lastChapterNumber, @lastReadChapterId, @lastReadAt, @createdAt, @updatedAt
       )
@@ -285,6 +295,7 @@ export class AppDatabase {
 
     stmt.run({
       ...item,
+      originalTitle: item.originalTitle || null,
       altTitles: JSON.stringify(item.altTitles),
       genres: JSON.stringify(item.genres),
       inLibrary: item.inLibrary ? 1 : 0,
@@ -710,6 +721,7 @@ export class AppDatabase {
       sourceId: row.source_id,
       sourceMangaId: row.source_manga_id,
       title: row.title,
+      originalTitle: row.original_title || undefined,
       altTitles: JSON.parse(row.alt_titles || '[]'),
       description: row.description,
       author: row.author,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, FolderOpen, RefreshCw } from 'lucide-react';
+import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { api } from '../lib/api';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
@@ -9,10 +9,26 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingFlare, setTestingFlare] = useState(false);
+  const [flareStatus, setFlareStatus] = useState<string | null>(null);
 
   useEffect(() => {
     api.getSettings().then(s => { setSettings(s); setLoading(false); });
+    api.getFlareSolverrStatus().then(st => setFlareStatus(st.message)).catch(() => {});
   }, []);
+
+  const handleTestFlare = async () => {
+    setTestingFlare(true);
+    try {
+      const res = await api.getFlareSolverrStatus();
+      setFlareStatus(res.message);
+      show(res.available ? 'FlareSolverr conectado com sucesso!' : res.message, res.available ? 'success' : 'info');
+    } catch (e: any) {
+      show(`Erro ao testar FlareSolverr: ${e.message}`, 'error');
+    } finally {
+      setTestingFlare(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -155,6 +171,39 @@ export function SettingsPage() {
             <option value={1440}>24 horas</option>
           </select>
         </div>
+      </section>
+
+      {/* Cloudflare / FlareSolverr */}
+      <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+          <div>
+            <h2 className="text-base font-semibold text-gray-200">Proteção Cloudflare & FlareSolverr</h2>
+            <p className="text-xs text-gray-500">Serviço auxiliar para resolução de desafios Cloudflare em fontes protegidas</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleTestFlare} loading={testingFlare}>
+            <RefreshCw size={13} /> Testar Conexão
+          </Button>
+        </div>
+
+        <div>
+          <label className="text-xs text-gray-400 font-medium block mb-1">URL da API FlareSolverr</label>
+          <input
+            type="text"
+            value={settings.flaresolverrUrl || 'http://localhost:8191/v1'}
+            onChange={e => update('flaresolverrUrl', e.target.value)}
+            placeholder="http://localhost:8191/v1"
+            className="w-full bg-[#131720] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Endpoint v1 do container FlareSolverr (ex.: docker run -p 8191:8191 ghcr.io/flaresolverr/flaresolverr)
+          </p>
+        </div>
+
+        {flareStatus && (
+          <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-gray-300">
+            <span className="font-semibold text-purple-400">Diagnóstico:</span> {flareStatus}
+          </div>
+        )}
       </section>
 
       {/* Server */}
