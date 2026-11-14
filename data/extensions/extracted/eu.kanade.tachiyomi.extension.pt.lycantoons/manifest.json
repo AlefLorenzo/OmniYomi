@@ -1,0 +1,18 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.pt.lycantoons",
+  "name": "Lycan Toons",
+  "version": "1.6.3",
+  "lang": "pt-BR",
+  "hasDex": true,
+  "apkUrl": "https://github.com/keiyoushi/extensions/releases/download/b035310-3/tachiyomi-pt.lycantoons-v1.6.3.apk",
+  "repoUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
+  "sources": [
+    {
+      "id": "9117178890425713139",
+      "name": "Lycan Toons",
+      "lang": "pt-BR",
+      "baseUrl": "https://lycantoons.com"
+    }
+  ],
+  "extractedAt": 1794634668914
+}

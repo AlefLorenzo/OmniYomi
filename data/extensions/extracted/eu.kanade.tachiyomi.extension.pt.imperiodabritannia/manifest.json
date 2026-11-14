@@ -1,0 +1,18 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.pt.imperiodabritannia",
+  "name": "Sagrado Império da Britannia",
+  "version": "1.6.2",
+  "lang": "pt-BR",
+  "hasDex": true,
+  "apkUrl": "https://github.com/keiyoushi/extensions/releases/download/b035310-2/tachiyomi-pt.imperiodabritannia-v1.6.2.apk",
+  "repoUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
+  "sources": [
+    {
+      "id": "7355004027880350247",
+      "name": "Sagrado Império da Britannia",
+      "lang": "pt-BR",
+      "baseUrl": "https://imperiodabritannia.net"
+    }
+  ],
+  "extractedAt": 1794634675458
+}

@@ -4,6 +4,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { fileURLToPath } from 'url';
 import { db } from '../db/database.js';
+import { extensionManager } from '../sources/ExtensionManager.js';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -264,22 +265,15 @@ export class RepoManager {
       sources,
     });
 
-    // 5. Register sources into system sources table so they are browsable
-    for (const s of sources) {
-      db.registerSource({
-        id: `apk:${pkg}:${s.id}`,
-        name: `${s.name} (${s.lang.toUpperCase()})`,
-        version,
-        lang: s.lang,
-        iconUrl: meta?.iconUrl || '/assets/apk-icon.png',
-        baseUrl: s.baseUrl || 'https://tachiyomi.org',
-        isEnabled: true,
-        isNsfw: meta?.isNsfw || false,
-        hasPopular: true,
-        hasLatest: true,
-        supportsSearch: true,
-      });
-    }
+    // 5. Register live sources into ExtensionManager so they are immediately browsable
+    extensionManager.registerApkExtensionSources({
+      pkg,
+      name,
+      version,
+      lang,
+      iconUrl: meta?.iconUrl,
+      sources,
+    });
 
     // Invalidate memory cache so UI sees it as installed
     this.cache.delete(repoUrl);
@@ -299,8 +293,9 @@ export class RepoManager {
       fs.unlinkSync(apkPath);
     }
 
-    // Remove from DB
+    // Remove from DB and ExtensionManager
     db.deleteExtractedExtension(pkg);
+    extensionManager.removeApkExtensionSources(pkg);
 
     // Invalidate caches
     this.cache.clear();

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { ISource, BaseSource } from './BaseSource.js';
 import { MangaDexSource } from './MangaDexSource.js';
 import { LocalStorageSource } from './LocalStorageSource.js';
+import { ApkSourceAdapter } from './ApkSourceAdapter.js';
 import { SourceManifest, ExtensionRepoItem, MangaListResult, Chapter, PageImage, Manga } from '../types/index.js';
 import { db } from '../db/database.js';
 
@@ -26,6 +27,7 @@ export class ExtensionManager {
   constructor() {
     this.registerBuiltInSources();
     this.loadExternalExtensions();
+    this.loadExtractedApkExtensions();
   }
 
   private registerBuiltInSources() {
@@ -34,6 +36,63 @@ export class ExtensionManager {
 
     this.registerSource(mangadex);
     this.registerSource(local);
+  }
+
+  public loadExtractedApkExtensions() {
+    try {
+      const extractedList = db.getExtractedExtensions();
+      for (const ext of extractedList) {
+        for (const s of ext.sources || []) {
+          const adapter = new ApkSourceAdapter({
+            pkg: ext.pkg,
+            sourceId: String(s.id),
+            name: s.name || ext.name,
+            version: ext.version,
+            lang: s.lang || ext.lang || 'all',
+            iconUrl: ext.iconUrl,
+            baseUrl: s.baseUrl,
+          });
+          this.sources.set(adapter.id, adapter);
+          console.log(`[Extensões APK] Fonte carregada: ${adapter.name} (${adapter.id})`);
+        }
+      }
+    } catch (e: any) {
+      console.warn('Erro ao carregar fontes APK extraídas:', e.message);
+    }
+  }
+
+  public registerApkExtensionSources(ext: {
+    pkg: string;
+    name: string;
+    version: string;
+    lang: string;
+    iconUrl?: string;
+    sources: any[];
+  }) {
+    for (const s of ext.sources || []) {
+      const adapter = new ApkSourceAdapter({
+        pkg: ext.pkg,
+        sourceId: String(s.id),
+        name: s.name || ext.name,
+        version: ext.version,
+        lang: s.lang || ext.lang || 'all',
+        iconUrl: ext.iconUrl,
+        baseUrl: s.baseUrl,
+      });
+      this.sources.set(adapter.id, adapter);
+      db.registerSource(adapter.getManifest());
+      console.log(`[Extensões APK] Nova fonte registrada em tempo real: ${adapter.name} (${adapter.id})`);
+    }
+  }
+
+  public removeApkExtensionSources(pkg: string) {
+    const prefix = `apk:${pkg}:`;
+    for (const id of Array.from(this.sources.keys())) {
+      if (id.startsWith(prefix)) {
+        this.sources.delete(id);
+        this.sourceHealth.delete(id);
+      }
+    }
   }
 
   public registerSource(source: ISource) {
