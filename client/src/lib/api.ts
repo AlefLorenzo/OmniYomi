@@ -1,17 +1,72 @@
-const BASE = '/api';
+export function getApiBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const stored = localStorage.getItem('omniyomi_server_url');
+  if (stored) return stored.replace(/\/$/, '');
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
+  // Detect Capacitor or Android WebView
+  const isCapacitor =
+    window.location.protocol === 'capacitor:' ||
+    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173') ||
+    (window.location.protocol === 'https:' && window.location.hostname === 'localhost') ||
+    Boolean((window as any).Capacitor?.isNativePlatform?.());
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  if (isCapacitor) {
+    // Endereço IP padrão da máquina servidora na rede local
+    return 'http://192.168.0.111:4567';
   }
 
-  return res.json();
+  return '';
+}
+
+export function setApiBaseUrl(url: string) {
+  if (!url) {
+    localStorage.removeItem('omniyomi_server_url');
+  } else {
+    localStorage.setItem('omniyomi_server_url', url.trim().replace(/\/$/, ''));
+  }
+}
+
+export function resolveApiUrl(pathOrUrl: string): string {
+  if (!pathOrUrl) return '';
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://') || pathOrUrl.startsWith('blob:') || pathOrUrl.startsWith('data:')) {
+    return pathOrUrl;
+  }
+  const base = getApiBaseUrl();
+  const cleanPath = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
+  return `${base}${cleanPath}`;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const base = getApiBaseUrl();
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const fullUrl = `${base}/api${cleanPath}`;
+
+  try {
+    const res = await fetch(fullUrl, {
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      ...options,
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Servidor indisponível.`);
+      }
+      throw new Error(`Resposta inválida (HTML recebido). Conecte ao backend OmniYomi em ${base || window.location.origin}`);
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+  } catch (err: any) {
+    if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+      throw new Error(`Não foi possível conectar ao servidor OmniYomi (${base || 'localhost'}). Verifique se o PC e o celular estão na mesma rede Wi-Fi.`);
+    }
+    throw err;
+  }
 }
 
 export const api = {

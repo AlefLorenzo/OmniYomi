@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '../../lib/utils';
+import { resolveApiUrl } from '../../lib/api';
 
 interface CoverCardProps {
   title: string;
@@ -12,8 +13,8 @@ interface CoverCardProps {
 
 export function CoverCard({ title, coverUrl, badges, overlay, onClick, className }: CoverCardProps) {
   const proxiedUrl = coverUrl && coverUrl.startsWith('http') && !coverUrl.startsWith('/api/proxy')
-    ? `/api/proxy/image?url=${encodeURIComponent(coverUrl)}`
-    : (coverUrl || '');
+    ? resolveApiUrl(`/api/proxy/image?url=${encodeURIComponent(coverUrl)}`)
+    : resolveApiUrl(coverUrl || '');
 
   return (
     <div

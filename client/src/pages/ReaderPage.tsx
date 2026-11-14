@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Menu, X, ZoomIn, ZoomOut, RotateCcw,
   ArrowLeft, Maximize, Minimize, List, BookOpen
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, resolveApiUrl } from '../lib/api';
 import { Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
 import { cn } from '../lib/utils';
@@ -331,7 +331,7 @@ export function ReaderPage() {
               <img
                 key={page.index}
                 ref={el => { pageRefs.current[idx] = el; }}
-                src={page.url}
+                src={resolveApiUrl(page.url)}
                 alt={`Página ${page.index}`}
                 className="w-full max-w-3xl mx-auto block"
                 style={{ marginBottom: pageSpacing + 'px' }}
@@ -369,7 +369,7 @@ export function ReaderPage() {
         <div className="flex-1 overflow-hidden flex items-center justify-center bg-black">
           {currentPageObj && (
             <img
-              src={currentPageObj.url}
+              src={resolveApiUrl(currentPageObj.url)}
               alt={`Página ${currentPage}`}
               className={getFitClass()}
               style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}

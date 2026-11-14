@@ -5,7 +5,7 @@ import {
   CheckSquare, Square, Star, User, Palette, ChevronDown, ChevronUp,
   CheckCircle, Circle, HardDrive, Loader2, BookmarkPlus, BookmarkCheck
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, resolveApiUrl } from '../lib/api';
 import { Button, Loader, ProgressBar } from '../components/ui/index';
 import { Badge } from '../components/ui/CoverCard';
 import { formatRelativeDate, statusLabel, statusColor, cn } from '../lib/utils';
@@ -222,9 +222,11 @@ export function MangaDetailPage() {
           <div className="w-40 sm:w-48 rounded-xl overflow-hidden shadow-2xl shadow-black/50 ring-1 ring-white/5 bg-[#121620] relative aspect-[2/3] flex items-center justify-center">
             {manga.coverUrl ? (
               <img
-                src={manga.coverUrl.startsWith('http') && !manga.coverUrl.startsWith('/api/proxy')
-                  ? `/api/proxy/image?url=${encodeURIComponent(manga.coverUrl)}`
-                  : manga.coverUrl}
+                src={resolveApiUrl(
+                  manga.coverUrl.startsWith('http') && !manga.coverUrl.startsWith('/api/proxy')
+                    ? `/api/proxy/image?url=${encodeURIComponent(manga.coverUrl)}`
+                    : manga.coverUrl
+                )}
                 alt={manga.title}
                 className="w-full h-full object-cover"
                 onError={e => {

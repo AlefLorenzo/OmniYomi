@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react';
-import { api } from '../lib/api';
+import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle } from 'lucide-react';
+import { api, getApiBaseUrl, setApiBaseUrl } from '../lib/api';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
 
@@ -12,10 +12,64 @@ export function SettingsPage() {
   const [testingFlare, setTestingFlare] = useState(false);
   const [flareStatus, setFlareStatus] = useState<string | null>(null);
 
+  // Server URL settings
+  const [serverUrl, setServerUrlState] = useState<string>(getApiBaseUrl() || 'http://192.168.0.111:4567');
+  const [testingServer, setTestingServer] = useState(false);
+  const [serverConnected, setServerConnected] = useState<boolean | null>(null);
+
   useEffect(() => {
-    api.getSettings().then(s => { setSettings(s); setLoading(false); });
-    api.getFlareSolverrStatus().then(st => setFlareStatus(st.message)).catch(() => {});
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const s = await api.getSettings();
+      setSettings(s);
+      setServerConnected(true);
+    } catch (e: any) {
+      // Fallback settings if server is not reachable yet
+      setSettings({
+        downloadPath: 'data/downloads',
+        concurrentDownloads: 2,
+        autoDownloadNew: false,
+        readerMode: 'vertical_webtoon',
+        fitMode: 'fit_width',
+        pageSpacing: 4,
+        autoMarkReadPercent: 80,
+      });
+      setServerConnected(false);
+    } finally {
+      setLoading(false);
+    }
+
+    try {
+      const st = await api.getFlareSolverrStatus();
+      setFlareStatus(st.message);
+    } catch {}
+  };
+
+  const handleTestServer = async () => {
+    setTestingServer(true);
+    try {
+      setApiBaseUrl(serverUrl);
+      const res = await api.health();
+      setServerConnected(true);
+      show(`Conectado ao OmniYomi Server (${res.status})!`, 'success');
+      loadData();
+    } catch (e: any) {
+      setServerConnected(false);
+      show(`Erro de conexão: ${e.message}`, 'error');
+    } finally {
+      setTestingServer(false);
+    }
+  };
+
+  const handleSaveServer = () => {
+    setApiBaseUrl(serverUrl);
+    show('Endereço do servidor salvo! Recarregando dados...', 'success');
+    loadData();
+  };
 
   const handleTestFlare = async () => {
     setTestingFlare(true);
@@ -53,6 +107,52 @@ export function SettingsPage() {
         <h1 className="text-2xl font-bold text-white">Configurações</h1>
         <p className="text-sm text-gray-500 mt-0.5">Personalize o comportamento do OmniYomi</p>
       </div>
+
+      {/* Backend Server Configuration */}
+      <section className="bg-[#1a1e29] border border-purple-500/30 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+          <div className="flex items-center gap-2">
+            <Server size={18} className="text-purple-400" />
+            <h2 className="text-base font-semibold text-gray-200">Servidor Backend OmniYomi</h2>
+          </div>
+          {serverConnected !== null && (
+            <span className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium ${
+              serverConnected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+            }`}>
+              {serverConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
+              {serverConnected ? 'Online / Conectado' : 'Desconectado'}
+            </span>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs text-gray-400 font-medium block mb-1">
+            Endereço do Servidor (IP e porta)
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={serverUrl}
+              onChange={e => setServerUrlState(e.target.value)}
+              placeholder="http://192.168.0.111:4567"
+              className="flex-1 bg-[#131720] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+            />
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={handleTestServer} loading={testingServer}>
+                <RefreshCw size={14} />
+                Testar
+              </Button>
+              <Button size="sm" onClick={handleSaveServer}>
+                <Save size={14} />
+                Salvar
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-1.5">
+            No aplicativo Android, informe o IP do computador na rede Wi-Fi (ex: <code>http://192.168.0.111:4567</code>).
+          </p>
+        </div>
+      </section>
 
       {/* Downloads */}
       <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">

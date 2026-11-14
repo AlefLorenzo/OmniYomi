@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { getApiBaseUrl } from './api';
 
 type WsMessage = { type: string; data?: any };
 type WsListener = (msg: WsMessage) => void;
@@ -17,10 +18,21 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
   const reconnectTimer = useRef<number | null>(null);
 
   const connect = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.hostname}:4567/ws`;
+    let url = '';
+    const apiBase = getApiBaseUrl();
+    if (apiBase) {
+      url = apiBase.replace(/^http/, 'ws') + '/ws';
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url = `${protocol}//${window.location.hostname}:4567/ws`;
+    }
 
-    ws.current = new WebSocket(url);
+    try {
+      ws.current = new WebSocket(url);
+    } catch {
+      setConnected(false);
+      return;
+    }
 
     ws.current.onopen = () => setConnected(true);
     ws.current.onclose = () => {

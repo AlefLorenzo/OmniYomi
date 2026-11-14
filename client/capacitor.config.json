@@ -1,9 +1,10 @@
-{
+  {
   "appId": "com.omniyomi.app",
   "appName": "OmniYomi",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "http",
+    "cleartext": true
   },
   "plugins": {
     "SplashScreen": {
