@@ -71,7 +71,7 @@ setupWebSocket(server);
 const settings = db.getSettings();
 const PORT = process.env.PORT || settings.port || 4567;
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`====================================================`);
   console.log(`  OmniYomi Server executando com sucesso!`);
   console.log(`  URL: http://localhost:${PORT}`);

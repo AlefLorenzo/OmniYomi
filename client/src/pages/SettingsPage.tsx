@@ -13,7 +13,7 @@ export function SettingsPage() {
   const [flareStatus, setFlareStatus] = useState<string | null>(null);
 
   // Server URL settings
-  const [serverUrl, setServerUrlState] = useState<string>(getApiBaseUrl() || 'http://192.168.0.111:4567');
+  const [serverUrl, setServerUrlState] = useState<string>(getApiBaseUrl() || 'http://192.168.0.111:8888');
   const [testingServer, setTestingServer] = useState(false);
   const [serverConnected, setServerConnected] = useState<boolean | null>(null);
 

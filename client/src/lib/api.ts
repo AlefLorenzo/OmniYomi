@@ -11,8 +11,8 @@ export function getApiBaseUrl(): string {
     Boolean((window as any).Capacitor?.isNativePlatform?.());
 
   if (isCapacitor) {
-    // Endereço IP padrão da máquina servidora na rede local
-    return 'http://192.168.0.111:4567';
+    // Porta 8888 funciona como proxy unificado HTTP e WebSocket para :4567
+    return 'http://192.168.0.111:8888';
   }
 
   return '';
@@ -41,18 +41,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const fullUrl = `${base}/api${cleanPath}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+
   try {
     const res = await fetch(fullUrl, {
       headers: { 'Content-Type': 'application/json', ...options.headers },
+      signal: options.signal || controller.signal,
       ...options,
     });
+    clearTimeout(timeoutId);
 
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: Servidor indisponível.`);
       }
-      throw new Error(`Resposta inválida (HTML recebido). Conecte ao backend OmniYomi em ${base || window.location.origin}`);
+      throw new Error(`Resposta não-JSON recebida. Verifique o servidor OmniYomi.`);
     }
 
     if (!res.ok) {
@@ -62,6 +67,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     return res.json();
   } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`Tempo limite esgotado ao conectar ao servidor (${base || 'localhost'}).`);
+    }
     if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
       throw new Error(`Não foi possível conectar ao servidor OmniYomi (${base || 'localhost'}). Verifique se o PC e o celular estão na mesma rede Wi-Fi.`);
     }
@@ -73,7 +82,27 @@ export const api = {
   health: () => request<{ status: string; version: string; app: string }>('/health'),
 
   // Sources
-  getSources: () => request<any[]>('/sources'),
+  getSources: async () => {
+    try {
+      return await request<any[]>('/sources');
+    } catch {
+      return [
+        {
+          id: 'mangadex',
+          name: 'MangaDex',
+          version: '1.0.0',
+          lang: 'all',
+          iconUrl: 'https://mangadex.org/favicon.ico',
+          baseUrl: 'https://api.mangadex.org',
+          isEnabled: true,
+          isNsfw: false,
+          hasPopular: true,
+          hasLatest: true,
+          supportsSearch: true,
+        },
+      ];
+    }
+  },
   getPopular: (sourceId: string, page = 1) => request<any>(`/sources/${sourceId}/popular?page=${page}`),
   getLatest: (sourceId: string, page = 1) => request<any>(`/sources/${sourceId}/latest?page=${page}`),
   searchSource: (sourceId: string, q: string, page = 1) => request<any>(`/sources/${sourceId}/search?q=${encodeURIComponent(q)}&page=${page}`),
@@ -90,12 +119,51 @@ export const api = {
   addRepo: (url: string, name?: string) => request<any>('/extensions/repos', { method: 'POST', body: JSON.stringify({ url, name }) }),
   deleteRepo: (url: string) => request<any>('/extensions/repos', { method: 'DELETE', body: JSON.stringify({ url }) }),
   toggleRepo: (url: string, enabled: boolean) => request<any>('/extensions/repos/toggle', { method: 'POST', body: JSON.stringify({ url, enabled }) }),
-  getStoreExtensions: (q?: string, lang?: string) => {
+  getStoreExtensions: async (q?: string, lang?: string) => {
     const params = new URLSearchParams();
     if (q) params.append('q', q);
     if (lang && lang !== 'all') params.append('lang', lang);
     const qs = params.toString();
-    return request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);
+    try {
+      return await request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);
+    } catch (err) {
+      // Fallback direto via GitHub para carregar a loja mesmo sem o PC
+      try {
+        const ghRes = await fetch('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json');
+        if (ghRes.ok) {
+          const list = await ghRes.json();
+          let filtered = Array.isArray(list) ? list : [];
+          if (lang && lang !== 'all') {
+            filtered = filtered.filter((e: any) => e.lang === lang || e.lang === 'all');
+          }
+          if (q && q.trim()) {
+            const query = q.toLowerCase();
+            filtered = filtered.filter((e: any) =>
+              e.name?.toLowerCase().includes(query) || e.pkg?.toLowerCase().includes(query)
+            );
+          }
+          const mapped = filtered.map((e: any) => ({
+            name: e.name,
+            pkg: e.pkg,
+            version: e.version,
+            lang: e.lang,
+            isNsfw: Boolean(e.isNsfw || e.nsfw),
+            iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${e.pkg}.png`,
+            apkUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/${e.apk}`,
+            isInstalled: false,
+            repoName: 'Keiyoushi (GitHub)',
+            sources: (e.sources || []).map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              baseUrl: s.baseUrl,
+              lang: s.lang,
+            })),
+          }));
+          return { total: mapped.length, extensions: mapped };
+        }
+      } catch {}
+      throw err;
+    }
   },
   extractExtension: (pkg: string, apkUrl: string, repoUrl?: string) =>
     request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) }),

@@ -244,7 +244,47 @@ function buildHtml(apks, ips) {
 
 function startServer() {
   const server = http.createServer((req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     const url = new URL(req.url, `http://localhost:${PORT}`);
+
+    // Proxy /api requests to OmniYomi backend on port 4567
+    if (url.pathname.startsWith('/api/') || url.pathname === '/api') {
+      const proxyReq = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 4567,
+          path: req.url,
+          method: req.method,
+          headers: {
+            ...req.headers,
+            host: '127.0.0.1:4567',
+          },
+        },
+        proxyRes => {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        }
+      );
+
+      proxyReq.on('error', err => {
+        console.warn(`[Proxy Error] ${req.url} -> :4567 failed:`, err.message);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Backend offline ou iniciando: ${err.message}` }));
+      });
+
+      req.pipe(proxyReq);
+      return;
+    }
 
     if (url.pathname === '/' || url.pathname === '/index.html') {
       const apks = findLocalApks();
@@ -278,6 +318,36 @@ function startServer() {
 
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Não encontrado.');
+  });
+
+  // WebSocket reverse proxy to port 4567
+  server.on('upgrade', (req, socket, head) => {
+    const proxyReq = http.request({
+      hostname: '127.0.0.1',
+      port: 4567,
+      path: req.url,
+      method: req.method,
+      headers: req.headers,
+    });
+
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      socket.write(
+        `HTTP/${req.httpVersion} 101 Switching Protocols\r\n` +
+          Object.entries(proxyRes.headers)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join('\r\n') +
+          '\r\n\r\n'
+      );
+      if (proxyHead && proxyHead.length) socket.write(proxyHead);
+      proxySocket.pipe(socket);
+      socket.pipe(proxySocket);
+    });
+
+    proxyReq.on('error', () => {
+      socket.destroy();
+    });
+
+    proxyReq.end();
   });
 
   server.listen(PORT, '0.0.0.0', () => {

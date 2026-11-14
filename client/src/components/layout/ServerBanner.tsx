@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { WifiOff, Server, Check, ArrowRight } from 'lucide-react';
+import { WifiOff, Server, Check, ArrowRight, X } from 'lucide-react';
 import { useWs } from '../../lib/ws';
 import { getApiBaseUrl, setApiBaseUrl, api } from '../../lib/api';
 
 export function ServerBanner() {
   const { connected } = useWs();
   const [showConfig, setShowConfig] = useState(false);
-  const [ip, setIp] = useState(getApiBaseUrl() || 'http://192.168.0.111:4567');
+  const [dismissed, setDismissed] = useState(false);
+  const [ip, setIp] = useState(getApiBaseUrl() || 'http://192.168.0.111:8888');
   const [testing, setTesting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -32,23 +33,32 @@ export function ServerBanner() {
     }
   };
 
-  if (connected && !showConfig) return null;
+  if ((connected || dismissed) && !showConfig) return null;
 
   return (
     <>
       {/* Top Banner when disconnected */}
-      {!connected && (
+      {!connected && !dismissed && (
         <div className="bg-amber-950/80 border-b border-amber-600/40 px-3 py-2 text-xs flex items-center justify-between text-amber-200">
           <div className="flex items-center gap-2 truncate">
             <WifiOff size={14} className="text-amber-400 shrink-0" />
-            <span className="truncate">Desconectado do servidor OmniYomi ({getApiBaseUrl() || 'localhost'})</span>
+            <span className="truncate">Modo Offline / Desconectado ({getApiBaseUrl() || 'local'})</span>
           </div>
-          <button
-            onClick={() => setShowConfig(true)}
-            className="shrink-0 ml-2 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium flex items-center gap-1 transition-colors"
-          >
-            Configurar IP <ArrowRight size={12} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <button
+              onClick={() => setShowConfig(true)}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium flex items-center gap-1 transition-colors"
+            >
+              Conectar PC <ArrowRight size={12} />
+            </button>
+            <button
+              onClick={() => setDismissed(true)}
+              className="p-1 text-amber-400 hover:text-white transition-colors"
+              title="Dispensar aviso"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -61,8 +71,8 @@ export function ServerBanner() {
                 <Server size={18} />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">Servidor OmniYomi</h3>
-                <p className="text-xs text-gray-400">Conecte o celular ao seu computador</p>
+                <h3 className="text-base font-semibold text-white">Servidor OmniYomi (PC)</h3>
+                <p className="text-xs text-gray-400">Conecte o celular ao computador via Wi-Fi</p>
               </div>
             </div>
 
@@ -74,12 +84,25 @@ export function ServerBanner() {
                 type="text"
                 value={ip}
                 onChange={e => setIp(e.target.value)}
-                placeholder="http://192.168.0.111:4567"
+                placeholder="http://192.168.0.111:8888"
                 className="w-full bg-[#0d1017] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
               />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Verifique se o celular está conectado na mesma rede Wi-Fi do computador.
-              </p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setIp('http://192.168.0.111:8888')}
+                  className="text-[11px] px-2 py-0.5 rounded bg-[#242c3d] text-purple-300 hover:bg-[#2e374d]"
+                >
+                  Porta 8888 (Padrão)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIp('http://192.168.0.111:4567')}
+                  className="text-[11px] px-2 py-0.5 rounded bg-[#242c3d] text-purple-300 hover:bg-[#2e374d]"
+                >
+                  Porta 4567
+                </button>
+              </div>
             </div>
 
             {errorMsg && (
