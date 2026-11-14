@@ -187,6 +187,18 @@ async function runTestSuite() {
     assert.ok(Array.isArray(res.manga), 'Deve retornar lista mesmo se vazia');
   });
 
+  // 13. Tachiyomi Extension Repositories (index.min.json extraction)
+  await test('Extração de extensões do repositório Suwayomi/Tachiyomi (index.min.json)', async () => {
+    const { repoManager } = await import('../server/src/services/RepoManager.js');
+    const repoUrl = 'https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json';
+    const exts = await repoManager.fetchRepoExtensions(repoUrl);
+
+    assert.ok(exts.length > 0, 'Deve extrair extensões do link index.min.json');
+    assert.strictEqual(exts[0].pkg, 'eu.kanade.tachiyomi.extension.all.tachidesk');
+    assert.ok(exts[0].apkUrl.endsWith('.apk'), 'URL do APK deve ser válida');
+    assert.ok(exts[0].sources.length > 0, 'Fontes da extensão devem ser extraídas');
+  });
+
   console.log('\n======================================================');
   console.log(`  RESULTADO: ${passed}/${total} TESTES APROVADOS! (${Math.round((passed / total) * 100)}%)`);
   console.log('======================================================\n');

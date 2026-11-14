@@ -1,0 +1,18 @@
+{
+  "pkg": "eu.kanade.tachiyomi.extension.all.tachidesk",
+  "name": "Tachiyomi: Suwayomi",
+  "version": "1.4.29",
+  "lang": "all",
+  "hasDex": true,
+  "apkUrl": "https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/apk/tachiyomi-all.tachidesk-v1.4.29.apk",
+  "repoUrl": "https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json",
+  "sources": [
+    {
+      "id": "3100117499901280806",
+      "name": "Suwayomi",
+      "lang": "all",
+      "baseUrl": ""
+    }
+  ],
+  "extractedAt": 1794634179857
+}

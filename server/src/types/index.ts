@@ -135,6 +135,38 @@ export interface MangaListResult {
   total?: number;
 }
 
+export interface ExtensionRepo {
+  url: string;
+  name: string;
+  enabled: boolean;
+  lastSynced: number | null;
+  extensionCount?: number;
+}
+
+export interface RepoExtensionSource {
+  id: string;
+  name: string;
+  lang: string;
+  baseUrl?: string;
+}
+
+export interface RepoExtension {
+  id: string;
+  pkg: string;
+  name: string;
+  version: string;
+  lang: string;
+  iconUrl: string;
+  apkUrl: string;
+  isNsfw: boolean;
+  repoUrl: string;
+  repoName: string;
+  sources: RepoExtensionSource[];
+  isInstalled: boolean;
+  isExtracted: boolean;
+  extractedPath?: string | null;
+}
+
 export interface ExtensionRepoItem {
   id: string;
   name: string;

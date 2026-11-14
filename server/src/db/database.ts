@@ -55,6 +55,18 @@ export class AppDatabase {
         last_synced INTEGER
       );
 
+      CREATE TABLE IF NOT EXISTS extracted_extensions (
+        pkg TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        lang TEXT NOT NULL,
+        apk_url TEXT NOT NULL,
+        icon_url TEXT,
+        extracted_path TEXT NOT NULL,
+        sources_json TEXT NOT NULL DEFAULT '[]',
+        installed_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS categories (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -154,6 +166,14 @@ export class AppDatabase {
       insertCat.run('completed', 'Concluídos', 2);
       insertCat.run('plan_to_read', 'Pretendo Ler', 3);
       insertCat.run('favorites', 'Favoritos', 4);
+    }
+
+    // Insert default extension repositories if empty
+    const repoCount = this.db.prepare('SELECT COUNT(*) as count FROM extension_repos').get() as { count: number };
+    if (repoCount.count === 0) {
+      const insertRepo = this.db.prepare('INSERT INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)');
+      insertRepo.run('https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json', 'Suwayomi Official Repo');
+      insertRepo.run('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json', 'Keiyoushi Extensions Repo');
     }
 
     // Default settings
@@ -591,6 +611,86 @@ export class AppDatabase {
 
   public toggleSource(id: string, isEnabled: boolean): void {
     this.db.prepare('UPDATE sources SET is_enabled = ? WHERE id = ?').run(isEnabled ? 1 : 0, id);
+  }
+
+  // --- Extension Repositories ---
+  public getExtensionRepos(): any[] {
+    const rows = this.db.prepare('SELECT * FROM extension_repos ORDER BY name ASC').all() as any[];
+    return rows.map(r => ({
+      url: r.url,
+      name: r.name,
+      enabled: r.enabled === 1,
+      lastSynced: r.last_synced,
+    }));
+  }
+
+  public addExtensionRepo(url: string, name?: string): any {
+    const cleanUrl = url.trim();
+    const repoName = name?.trim() || new URL(cleanUrl).hostname;
+    this.db.prepare(`
+      INSERT OR REPLACE INTO extension_repos (url, name, enabled, last_synced)
+      VALUES (?, ?, 1, NULL)
+    `).run(cleanUrl, repoName);
+    return { url: cleanUrl, name: repoName, enabled: true, lastSynced: null };
+  }
+
+  public deleteExtensionRepo(url: string): void {
+    this.db.prepare('DELETE FROM extension_repos WHERE url = ?').run(url);
+  }
+
+  public toggleExtensionRepo(url: string, enabled: boolean): void {
+    this.db.prepare('UPDATE extension_repos SET enabled = ? WHERE url = ?').run(enabled ? 1 : 0, url);
+  }
+
+  public updateRepoSynced(url: string): void {
+    this.db.prepare('UPDATE extension_repos SET last_synced = ? WHERE url = ?').run(Date.now(), url);
+  }
+
+  // --- Extracted Extensions (APKs) ---
+  public saveExtractedExtension(ext: {
+    pkg: string;
+    name: string;
+    version: string;
+    lang: string;
+    apkUrl: string;
+    iconUrl?: string;
+    extractedPath: string;
+    sources: any[];
+  }): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO extracted_extensions (
+        pkg, name, version, lang, apk_url, icon_url, extracted_path, sources_json, installed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ext.pkg,
+      ext.name,
+      ext.version,
+      ext.lang,
+      ext.apkUrl,
+      ext.iconUrl || null,
+      ext.extractedPath,
+      JSON.stringify(ext.sources || []),
+      Date.now()
+    );
+  }
+
+  public getExtractedExtensions(): any[] {
+    const rows = this.db.prepare('SELECT * FROM extracted_extensions ORDER BY installed_at DESC').all() as any[];
+    return rows.map(r => ({
+      pkg: r.pkg,
+      name: r.name,
+      version: r.version,
+      lang: r.lang,
+      apkUrl: r.apk_url,
+      iconUrl: r.icon_url,
+      extractedPath: r.extracted_path,
+      sources: JSON.parse(r.sources_json || '[]'),
+      installedAt: r.installed_at,
+    }));
+  }
+
+  public deleteExtractedExtension(pkg: string): void {
+    this.db.prepare('DELETE FROM extracted_extensions WHERE pkg = ?').run(pkg);
   }
 
   // --- Helpers ---

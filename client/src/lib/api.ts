@@ -26,9 +26,23 @@ export const api = {
   toggleSource: (id: string, enabled: boolean) => request<any>(`/sources/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   globalSearch: (q: string) => request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`),
 
-  // Extensions
+  // Extensions & Repos
   getAvailableExtensions: () => request<any[]>('/extensions/available'),
   uninstallExtension: (id: string) => request<any>(`/extensions/${id}`, { method: 'DELETE' }),
+  getRepos: () => request<any[]>('/extensions/repos'),
+  addRepo: (url: string, name?: string) => request<any>('/extensions/repos', { method: 'POST', body: JSON.stringify({ url, name }) }),
+  deleteRepo: (url: string) => request<any>('/extensions/repos', { method: 'DELETE', body: JSON.stringify({ url }) }),
+  toggleRepo: (url: string, enabled: boolean) => request<any>('/extensions/repos/toggle', { method: 'POST', body: JSON.stringify({ url, enabled }) }),
+  getStoreExtensions: (q?: string, lang?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.append('q', q);
+    if (lang && lang !== 'all') params.append('lang', lang);
+    const qs = params.toString();
+    return request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);
+  },
+  extractExtension: (pkg: string, apkUrl: string, repoUrl?: string) =>
+    request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) }),
+  uninstallExtracted: (pkg: string) => request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' }),
 
   // Manga
   getManga: (id: string) => request<any>(`/manga/${id}`),
