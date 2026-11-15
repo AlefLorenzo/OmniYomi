@@ -114,17 +114,21 @@ public class ExtensionManager {
             throw new IllegalStateException("O manifesto do APK não contém metadados de extensão.");
         }
 
-        // Esta build contém a ABI legada Tachiyomi 1.4 (interfaces RxJava).
-        // TachiyomiX 1.6 mudou Source para métodos suspend/coroutines e modelos Kotlin.
-        // Não marcar essas extensões como instaladas: elas exigem o runtime 1.6 completo.
-        String extensionLib = meta.getString("tachiyomix.extensionLib");
-        if (extensionLib != null && !extensionLib.trim().isEmpty()
-            && !extensionLib.trim().startsWith("1.4")) {
-            throw new IllegalStateException(
-                "API de extensão incompatível: este APK declara TachiyomiX "
-                + extensionLib + ", mas esta versão do OmniYomi só implementa a ABI legada 1.4. "
-                + "A extensão não foi registrada como instalada."
-            );
+        // Both supported extension ABIs (legacy 1.4 and suspend 1.6) are
+        // exposed by the in-app compatibility API. Do not treat a package name
+        // or an index entry as proof of a successful load.
+        Object rawLibVersion = meta.get("tachiyomix.extensionLib");
+        String extensionLib = rawLibVersion == null ? "" : String.valueOf(rawLibVersion);
+        if (!extensionLib.isEmpty()) {
+            try {
+                double libVersion = Double.parseDouble(extensionLib);
+                if (Math.abs(libVersion - 1.4d) > 0.0001d && Math.abs(libVersion - 1.6d) > 0.0001d) {
+                    throw new IllegalStateException("API de extensão não suportada: " + extensionLib
+                        + ". O OmniYomi suporta as ABIs Mihon 1.4 e 1.6.");
+                }
+            } catch (NumberFormatException e) {
+                throw new IllegalStateException("Metadado tachiyomix.extensionLib inválido: " + extensionLib, e);
+            }
         }
 
         String classMetadata = meta.getString("tachiyomi.extension.class");
@@ -351,7 +355,7 @@ public class ExtensionManager {
         }
         CatalogueSource cat = (CatalogueSource) s;
         try {
-            MangasPage result = cat.fetchPopularManga(page).toBlocking().first();
+            MangasPage result = ExtensionSuspendBridge.popular(cat, page);
             Log.i(TAG, "getPopularManga(" + s.getName() + ", p" + page + "): "
                 + (result.getMangas() != null ? result.getMangas().size() : 0) + " obras");
             return result;
@@ -371,7 +375,7 @@ public class ExtensionManager {
             throw new IllegalArgumentException("A fonte " + source.getName() + " não oferece lançamentos recentes.");
         }
         try {
-            MangasPage result = catalogue.fetchLatestUpdates(page).toBlocking().first();
+            MangasPage result = ExtensionSuspendBridge.latest(catalogue, page);
             Log.i(TAG, "getLatestManga(" + source.getName() + ", p" + page + "): "
                 + (result.getMangas() != null ? result.getMangas().size() : 0) + " obras");
             return result;
@@ -388,7 +392,7 @@ public class ExtensionManager {
         }
         CatalogueSource cat = (CatalogueSource) s;
         try {
-            return cat.fetchSearchManga(page, query, new FilterList()).toBlocking().first();
+            return ExtensionSuspendBridge.search(cat, page, query, new FilterList());
         } catch (Exception e) {
             Log.e(TAG, "Falha em searchManga para " + s.getName(), e);
             throw new Exception("[" + s.getName() + "] Falha na busca: " + e.getMessage(), e);
@@ -400,7 +404,7 @@ public class ExtensionManager {
         SManga manga = SManga.create();
         manga.setUrl(mangaUrl);
         try {
-            return s.fetchMangaDetails(manga).toBlocking().first();
+            return ExtensionSuspendBridge.mangaUpdate(s, manga, Collections.emptyList(), true, false).getManga();
         } catch (Exception e) {
             Log.e(TAG, "Falha em getMangaDetails para " + s.getName(), e);
             throw new Exception("[" + s.getName() + "] Falha ao carregar detalhes: " + e.getMessage(), e);
@@ -412,7 +416,7 @@ public class ExtensionManager {
         SManga manga = SManga.create();
         manga.setUrl(mangaUrl);
         try {
-            List<SChapter> chapters = s.fetchChapterList(manga).toBlocking().first();
+            List<SChapter> chapters = ExtensionSuspendBridge.mangaUpdate(s, manga, Collections.emptyList(), false, true).getChapters();
             Log.i(TAG, "getChapterList(" + s.getName() + "): " + chapters.size() + " capítulos");
             return chapters;
         } catch (Exception e) {
@@ -426,7 +430,7 @@ public class ExtensionManager {
         SChapter ch = SChapter.create();
         ch.setUrl(chapterUrl);
         try {
-            List<Page> pages = s.fetchPageList(ch).toBlocking().first();
+            List<Page> pages = ExtensionSuspendBridge.pages(s, ch);
             Log.i(TAG, "getPageList(" + s.getName() + "): " + pages.size() + " páginas");
             return pages;
         } catch (Exception e) {
@@ -503,7 +507,7 @@ public class ExtensionManager {
         Source source = requireSource(sourceId);
         SChapter chapter = SChapter.create();
         chapter.setUrl(chapterId);
-        List<Page> pages = source.fetchPageList(chapter).toBlocking().first();
+        List<Page> pages = ExtensionSuspendBridge.pages(source, chapter);
         if (pages == null || pages.isEmpty()) {
             throw new IllegalStateException("A fonte não retornou páginas para o capítulo.");
         }
