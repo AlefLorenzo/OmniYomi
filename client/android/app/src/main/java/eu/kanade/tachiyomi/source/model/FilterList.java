@@ -31,4 +31,8 @@ public class FilterList extends ArrayList<Filter<?>> {
 
     public FilterList copy(List<Filter<?>> filters) { return new FilterList(filters); }
     public List<Filter<?>> component1() { return this; }
+
+    // Mihon's FilterList intentionally does not implement structural equality.
+    @Override public boolean equals(Object other) { return false; }
+    @Override public int hashCode() { return super.hashCode(); }
 }
