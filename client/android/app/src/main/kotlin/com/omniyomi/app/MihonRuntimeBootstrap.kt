@@ -3,6 +3,7 @@ package com.omniyomi.app
 import android.app.Application
 import android.content.Context
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.JavaScriptEngine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import uy.kohesive.injekt.Injekt
@@ -23,6 +24,7 @@ object MihonRuntimeBootstrap {
         Injekt.addSingleton(fullType<Application>(), application)
         Injekt.addSingleton(fullType<Context>(), application)
         Injekt.addSingletonFactory(fullType<NetworkHelper>()) { NetworkHelper() }
+        Injekt.addSingletonFactory(fullType<JavaScriptEngine>()) { JavaScriptEngine(application) }
         Injekt.addSingletonFactory(fullType<Json>()) {
             Json {
                 ignoreUnknownKeys = true
