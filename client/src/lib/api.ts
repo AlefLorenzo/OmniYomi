@@ -302,7 +302,7 @@ export const DEFAULT_REPOSITORIES = [
   {
     id: 'felipegfa',
     name: 'FelipeGFA (Repositório BR de Extensões)',
-    url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.json',
+    url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb',
     originalUrl: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb',
     enabled: true,
     lastSynced: Date.now(),
@@ -310,7 +310,7 @@ export const DEFAULT_REPOSITORIES = [
   {
     id: 'cursed',
     name: 'Cursed Yūzōnō (Manga & Cursed)',
-    url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.json',
+    url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb',
     originalUrl: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb',
     enabled: true,
     lastSynced: Date.now(),
@@ -1045,9 +1045,9 @@ export const api = {
     // Só registramos fontes retornadas pelo ExtensionManager após carregamento real.
     if (await checkIsNative()) {
       const declaredLib = String(extData?.extensionLib || '').trim();
-      if (declaredLib && !declaredLib.startsWith('1.4')) {
+      if (declaredLib && !declaredLib.startsWith('1.4') && !declaredLib.startsWith('1.6')) {
         throw new Error(
-          `A extensão ${pkg} exige TachiyomiX ${declaredLib}. Esta versão do OmniYomi só executa a ABI legada 1.4; a extensão não será marcada como instalada.`
+          `A extensão ${pkg} exige extensionLib ${declaredLib}. O runtime desta versão declara compatibilidade com as ABIs 1.4 e 1.6; a extensão não será marcada como instalada.`
         );
       }
 
