@@ -14,7 +14,7 @@ fun Call.asObservable(): Observable<Response> = Observable.create { subscriber -
     val clone = clone()
     subscriber.add(object : rx.Subscription {
         override fun unsubscribe() { clone.cancel() }
-        override fun isUnsubscribed(): Boolean = clone.isCanceled
+        override fun isUnsubscribed(): Boolean = clone.isCanceled()
     })
     try {
         if (!subscriber.isUnsubscribed) {
