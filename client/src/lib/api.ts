@@ -81,6 +81,23 @@ function saveLocalLibrary(list: any[]) {
   } catch {}
 }
 
+function getLocalCategories(): any[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem('omniyomi_local_categories') || 'null');
+    if (Array.isArray(stored)) return stored;
+  } catch {}
+  return [
+    { id: 'default', name: 'Padrão' },
+    { id: 'favorites', name: 'Favoritos' },
+  ];
+}
+
+function saveLocalCategories(categories: any[]) {
+  try {
+    localStorage.setItem('omniyomi_local_categories', JSON.stringify(categories));
+  } catch {}
+}
+
 function getLocalHistory(): any[] {
   try {
     return JSON.parse(localStorage.getItem('omniyomi_local_history') || '[]');
@@ -1100,7 +1117,32 @@ export const api = {
       throw new Error(`Capítulos não disponíveis. Fonte "${sourceId}" indisponível.`);
     }
   },
-  refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
+  refreshManga: async (mangaId: string, sourceId?: string) => {
+    if (await checkIsNative()) {
+      if (!sourceId) throw new Error('A fonte desta obra não está identificada na biblioteca.');
+      const result = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
+      const chapters = result?.chapters || [];
+      const library = getLocalLibrary();
+      const index = library.findIndex((item: any) => String(item.id) === String(mangaId));
+      if (index >= 0) {
+        const existing = new Map<string, any>(
+          (library[index].chapters || []).map((chapter: any) => [
+            String(chapter.id || chapter.url || chapter.sourceChapterId),
+            chapter,
+          ])
+        );
+        const merged = chapters.map((chapter: any) => {
+          const key = String(chapter.id || chapter.url || chapter.sourceChapterId);
+          const previous = existing.get(key);
+          return previous ? { ...chapter, ...previous, ...chapter } : chapter;
+        });
+        library[index] = { ...library[index], chapters: merged, lastCheckedAt: new Date().toISOString() };
+        saveLocalLibrary(library);
+      }
+      return { success: true, chapters, total: chapters.length };
+    }
+    return request<any>(`/manga/${encodeURIComponent(mangaId)}/refresh`, { method: 'POST' });
+  },
   setInLibrary: async (
     id: string,
     inLibrary: boolean,
@@ -1211,8 +1253,17 @@ export const api = {
     saveLocalLibrary(lib);
     return { isFavorite: true, inLibrary: true };
   },
-  setCategory: (id: string, categoryId: string) =>
-    request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
+  setCategory: async (id: string, categoryId: string) => {
+    if (await checkIsNative()) {
+      const library = getLocalLibrary();
+      const index = library.findIndex((item: any) => String(item.id) === String(id));
+      if (index < 0) throw new Error('A obra não está na biblioteca local.');
+      library[index] = { ...library[index], categoryId };
+      saveLocalLibrary(library);
+      return { success: true, categoryId };
+    }
+    return request<any>(`/manga/${encodeURIComponent(id)}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) });
+  },
 
   // Chapters
   getPages: async (chapterId: string, sourceId?: string, mangaId?: string) => {
@@ -1255,8 +1306,22 @@ export const api = {
       return { success: true };
     }
   },
-  markChaptersRead: (chapterIds: string[], isRead: boolean) =>
-    request<any>('/chapters/mark-read', { method: 'POST', body: JSON.stringify({ chapterIds, isRead }) }),
+  markChaptersRead: async (chapterIds: string[], isRead: boolean) => {
+    if (await checkIsNative()) {
+      const ids = new Set(chapterIds.map(String));
+      const library = getLocalLibrary().map((manga: any) => ({
+        ...manga,
+        chapters: (manga.chapters || []).map((chapter: any) =>
+          ids.has(String(chapter.id || chapter.url || chapter.sourceChapterId))
+            ? { ...chapter, isRead }
+            : chapter
+        ),
+      }));
+      saveLocalLibrary(library);
+      return { success: true, updated: chapterIds.length };
+    }
+    return request<any>('/chapters/mark-read', { method: 'POST', body: JSON.stringify({ chapterIds, isRead }) });
+  },
 
   // Downloads
   getDownloads: async () => {
@@ -1319,6 +1384,9 @@ export const api = {
       return await request<any[]>(`/library${qs ? `?${qs}` : ''}`);
     } catch {
       let lib = getLocalLibrary();
+      if (category && category !== 'all') {
+        lib = lib.filter((m: any) => m.categoryId === category);
+      }
       if (search) {
         lib = lib.filter((m: any) => m.title?.toLowerCase().includes(search.toLowerCase()));
       }
@@ -1326,14 +1394,35 @@ export const api = {
     }
   },
   getCategories: async () => {
+    if (await checkIsNative()) return getLocalCategories();
     try {
       return await request<any[]>('/library/categories');
     } catch {
-      return [];
+      return getLocalCategories();
     }
   },
-  createCategory: (name: string) => request<any>('/library/categories', { method: 'POST', body: JSON.stringify({ name }) }),
-  deleteCategory: (id: string) => request<any>(`/library/categories/${id}`, { method: 'DELETE' }),
+  createCategory: async (name: string) => {
+    if (await checkIsNative()) {
+      const categories = getLocalCategories();
+      const category = { id: `category_${Date.now()}`, name };
+      categories.push(category);
+      saveLocalCategories(categories);
+      return category;
+    }
+    return request<any>('/library/categories', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+  deleteCategory: async (id: string) => {
+    if (await checkIsNative()) {
+      const categories = getLocalCategories().filter((category: any) => category.id !== id);
+      saveLocalCategories(categories);
+      const library = getLocalLibrary().map((manga: any) =>
+        manga.categoryId === id ? { ...manga, categoryId: 'default' } : manga
+      );
+      saveLocalLibrary(library);
+      return { success: true };
+    }
+    return request<any>(`/library/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
 
   // History
   getHistory: async (limit = 50) => {
