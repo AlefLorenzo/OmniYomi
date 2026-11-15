@@ -29,17 +29,18 @@ export function isCapacitorApp(): boolean {
 }
 
 export function isServerConfigured(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined' || isCapacitorApp()) return false;
   const stored = localStorage.getItem('omniyomi_server_url');
   return Boolean(stored && stored.trim().length > 0);
 }
 
 export function setApiBaseUrl(url: string) {
-  if (!url) {
+  // O APK não aceita configuração de servidor: sua arquitetura é local/standalone.
+  if (isCapacitorApp() || !url) {
     localStorage.removeItem('omniyomi_server_url');
-  } else {
-    localStorage.setItem('omniyomi_server_url', url.trim().replace(/\/$/, ''));
+    return;
   }
+  localStorage.setItem('omniyomi_server_url', url.trim().replace(/\/$/, ''));
 }
 
 export function resolveApiUrl(pathOrUrl: string): string {
@@ -1352,8 +1353,48 @@ export const api = {
   },
 
   // Settings
-  getSettings: () => request<any>('/settings'),
-  updateSettings: (settings: any) => request<any>('/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  getSettings: async () => {
+    const defaults = {
+      downloadPath: 'OmniYomi/Downloads',
+      concurrentDownloads: 2,
+      autoDownloadNew: false,
+      defaultReaderMode: 'vertical_webtoon',
+      readerMode: 'vertical_webtoon',
+      fitMode: 'fit_width',
+      pageSpacing: 4,
+      autoMarkReadPercent: 80,
+      port: 4567,
+      flaresolverrUrl: '',
+    };
+    if (await checkIsNative()) {
+      try {
+        return { ...defaults, ...JSON.parse(localStorage.getItem('omniyomi_settings') || '{}') };
+      } catch {
+        return defaults;
+      }
+    }
+    try {
+      return await request<any>('/settings');
+    } catch {
+      try {
+        return { ...defaults, ...JSON.parse(localStorage.getItem('omniyomi_settings') || '{}') };
+      } catch {
+        return defaults;
+      }
+    }
+  },
+  updateSettings: async (settings: any) => {
+    if (await checkIsNative()) {
+      localStorage.setItem('omniyomi_settings', JSON.stringify(settings));
+      return settings;
+    }
+    try {
+      return await request<any>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
+    } catch {
+      localStorage.setItem('omniyomi_settings', JSON.stringify(settings));
+      return settings;
+    }
+  },
 
   // Updates
   checkUpdates: async () => {
