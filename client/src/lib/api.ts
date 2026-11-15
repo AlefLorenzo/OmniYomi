@@ -1149,7 +1149,10 @@ export const api = {
     }
   },
   getChapters: async (mangaId: string, sourceId?: string) => {
-    if (!sourceId || sourceId === 'mangadex') {
+    if (!sourceId) {
+      throw new Error('Não foi possível identificar a fonte desta obra. Reabra a obra pela extensão correta; nenhuma fonte alternativa será utilizada.');
+    }
+    if (sourceId === 'mangadex') {
       return getMangaDexChapters(mangaId);
     }
     if (await checkIsNative()) {
@@ -1317,7 +1320,10 @@ export const api = {
 
   // Chapters
   getPages: async (chapterId: string, sourceId?: string, mangaId?: string) => {
-    if (!sourceId || sourceId === 'mangadex') {
+    if (!sourceId) {
+      throw new Error('Não foi possível identificar a fonte deste capítulo. Nenhuma fonte alternativa será utilizada.');
+    }
+    if (sourceId === 'mangadex') {
       return getMangaDexPages(chapterId);
     }
     if (await checkIsNative()) {
