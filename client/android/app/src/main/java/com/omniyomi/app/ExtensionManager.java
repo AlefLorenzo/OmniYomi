@@ -525,7 +525,7 @@ public class ExtensionManager {
         }
 
         HttpSource httpSource = source instanceof HttpSource ? (HttpSource) source : null;
-        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getClient();
+        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getDefaultClient();
         int downloaded = 0;
 
         for (int i = 0; i < pages.size(); i++) {
@@ -552,7 +552,7 @@ public class ExtensionManager {
                         .headers(httpSource.getHeaders())
                         .build();
                 } else {
-                    request = httpSource.imageUrlRequest(page);
+                    request = httpSource.getImageUrlRequestForDownload(page);
                 }
             } else {
                 request = new Request.Builder()
