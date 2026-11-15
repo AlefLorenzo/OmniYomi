@@ -339,6 +339,29 @@ public class TachiyomiNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void downloadChapterFromSource(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        String mangaId = call.getString("mangaId");
+        String chapterId = call.getString("chapterId");
+        if (sourceId == null || mangaId == null || chapterId == null) {
+            call.reject("sourceId, mangaId e chapterId são obrigatórios");
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                boolean success = manager.downloadChapterFromSource(sourceId, mangaId, chapterId);
+                JSObject ret = new JSObject();
+                ret.put("success", success);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "Falha ao baixar capítulo usando a própria extensão", e);
+                call.reject("Falha no download local: " + e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
     public void getDownloadedChapters(PluginCall call) {
         JSArray arr = new JSArray();
         for (java.util.Map<String, Object> item : manager.getDownloadedChapters()) {
