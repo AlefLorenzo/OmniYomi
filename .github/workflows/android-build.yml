@@ -68,10 +68,12 @@ jobs:
           chmod +x client/android/gradlew
           mkdir -p client/android/app/src/main/assets/public
 
-      - name: Sincronizar Capacitor Android
+      - name: Sincronizar assets do Capacitor Android
         run: |
-          cd client
-          npx cap sync android || npx cap copy android
+          mkdir -p client/android/app/src/main/assets/public
+          cp -r client/dist/* client/android/app/src/main/assets/public/
+          cp client/capacitor.config.json client/android/app/src/main/assets/capacitor.config.json
+          (cd client && npx cap sync android) || echo "Assets do Capacitor sincronizados diretamente para o projeto Android"
 
       - name: Configurar versionamento no build.gradle
         run: |
