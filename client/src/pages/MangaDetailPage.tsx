@@ -102,7 +102,7 @@ export function MangaDetailPage() {
     setLibraryLoading(true);
     try {
       const nextLib = !inLibrary;
-      await api.setInLibrary(mangaId, nextLib, isFavorite ? 'favorites' : 'default');
+      await api.setInLibrary(mangaId, nextLib, isFavorite ? 'favorites' : 'default', manga ? { ...manga, id: mangaId, sourceId: currentSourceId || manga.sourceId, sourceMangaId: manga.url || mangaId, chapters } : undefined);
       setInLibrary(nextLib);
       show(nextLib ? 'Adicionado à biblioteca!' : 'Removido da biblioteca', 'success');
     } catch (e: any) {
@@ -116,7 +116,7 @@ export function MangaDetailPage() {
     setFavoriteLoading(true);
     try {
       const nextFav = !isFavorite;
-      await api.toggleFavorite(mangaId, nextFav);
+      await api.toggleFavorite(mangaId, nextFav, manga ? { ...manga, id: mangaId, sourceId: currentSourceId || manga.sourceId, sourceMangaId: manga.url || mangaId, chapters } : undefined);
       setIsFavorite(nextFav);
       if (nextFav) setInLibrary(true);
       show(nextFav ? 'Adicionado aos Favoritos! ❤️' : 'Removido dos Favoritos', 'success');
