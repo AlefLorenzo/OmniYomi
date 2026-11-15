@@ -524,7 +524,7 @@ public class ExtensionManager {
         }
 
         HttpSource httpSource = source instanceof HttpSource ? (HttpSource) source : null;
-        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getClient();
+        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getDefaultClient();
         int downloaded = 0;
 
         for (int i = 0; i < pages.size(); i++) {
