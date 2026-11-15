@@ -1,75 +1,87 @@
 package eu.kanade.tachiyomi.network;
 
+import android.content.Context;
+import com.omniyomi.app.ExtensionRuntimeContext;
+import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor;
+import java.io.File;
 import java.util.concurrent.TimeUnit;
+import okhttp3.Cache;
 import okhttp3.Headers;
-import okhttp3.Cookie;
-import okhttp3.CookieJar;
-import okhttp3.HttpUrl;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 
+/**
+ * In-app NetworkHelper compatible with the properties consumed by Mihon extensions.
+ * Its OkHttp client uses Android's WebView cookie store and an on-device Cloudflare
+ * challenge interceptor; no remote solver or external server is required.
+ */
 public class NetworkHelper {
-    private static OkHttpClient client;
-    private static final CookieJar COOKIE_JAR = new CookieJar() {
-        private final Map<String, List<Cookie>> cookies = new ConcurrentHashMap<>();
+    private static final AndroidCookieJar COOKIE_JAR = new AndroidCookieJar();
+    private static volatile NetworkHelper defaultInstance;
 
-        @Override public void saveFromResponse(HttpUrl url, List<Cookie> received) {
-            List<Cookie> existing = new ArrayList<>(cookies.getOrDefault(url.host(), new ArrayList<>()));
-            long now = System.currentTimeMillis();
-            existing.removeIf(cookie -> cookie.expiresAt() <= now || received.stream().anyMatch(
-                fresh -> fresh.name().equals(cookie.name()) && fresh.domain().equals(cookie.domain())
-                    && fresh.path().equals(cookie.path())
-            ));
-            for (Cookie cookie : received) if (cookie.expiresAt() > now) existing.add(cookie);
-            if (existing.isEmpty()) cookies.remove(url.host());
-            else cookies.put(url.host(), existing);
+    private final Context context;
+    private volatile OkHttpClient client;
+
+    public NetworkHelper(Context context) {
+        if (context == null) throw new IllegalArgumentException("Context obrigatório para NetworkHelper.");
+        this.context = context.getApplicationContext();
+        synchronized (NetworkHelper.class) {
+            if (defaultInstance == null) defaultInstance = this;
         }
+    }
 
-        @Override public List<Cookie> loadForRequest(HttpUrl url) {
-            long now = System.currentTimeMillis();
-            List<Cookie> stored = cookies.getOrDefault(url.host(), new ArrayList<>());
-            List<Cookie> valid = new ArrayList<>();
-            for (Cookie cookie : stored) {
-                if (cookie.expiresAt() > now && cookie.matches(url)) valid.add(cookie);
-            }
-            return valid;
-        }
-    };
+    public NetworkHelper() {
+        this(ExtensionRuntimeContext.getContext());
+    }
 
-    public synchronized OkHttpClient getClient() { return getSharedClient(); }
-
-    public static synchronized OkHttpClient getDefaultClient() { return getSharedClient(); }
-
-    private static synchronized OkHttpClient getSharedClient() {
+    public synchronized OkHttpClient getClient() {
         if (client == null) {
-            client = new OkHttpClient.Builder()
+            File cacheDir = new File(context.getCacheDir(), "extension_http_cache");
+            if (!cacheDir.exists()) cacheDir.mkdirs();
+
+            OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .cookieJar(COOKIE_JAR)
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
-                .callTimeout(2, TimeUnit.MINUTES)
                 .writeTimeout(60, TimeUnit.SECONDS)
+                .callTimeout(2, TimeUnit.MINUTES)
                 .followRedirects(true)
-                .followSslRedirects(true)
-                .build();
+                .followSslRedirects(true);
+
+            try {
+                builder.cache(new Cache(cacheDir, 8L * 1024L * 1024L));
+            } catch (Exception ignored) {
+                // Cache is optional; source requests must still work if storage is restricted.
+            }
+
+            builder.addInterceptor(new CloudflareInterceptor(
+                context,
+                COOKIE_JAR,
+                this::defaultUserAgentProvider
+            ));
+
+            client = builder.build();
         }
         return client;
     }
 
+    public static synchronized OkHttpClient getDefaultClient() {
+        if (defaultInstance == null) {
+            defaultInstance = new NetworkHelper(ExtensionRuntimeContext.getContext());
+        }
+        return defaultInstance.getClient();
+    }
+
+    /** Kotlin property: NetworkHelper.cookieJar */
+    public AndroidCookieJar getCookieJar() { return COOKIE_JAR; }
+
+    /** Deprecated Mihon property; the regular client handles supported CF challenges. */
+    public OkHttpClient getCloudflareClient() { return getClient(); }
+
     public String defaultUserAgentProvider() {
         return "Mozilla/5.0 (Linux; Android 13; OmniYomi) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
     }
-
-    /** Kotlin property accessors expected by Mihon extensions. */
-    public CookieJar getCookieJar() { return COOKIE_JAR; }
-
-    /** Deprecated Mihon property; the regular client is the supported client. */
-    public OkHttpClient getCloudflareClient() { return getClient(); }
-
 
     public static Request GET(String url, Headers headers) {
         return new Request.Builder().url(url).headers(headers).build();
