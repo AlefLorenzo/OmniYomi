@@ -26,19 +26,19 @@ object ExtensionSuspendBridge {
     @JvmStatic
     fun popular(source: CatalogueSource, page: Int): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi { continuation -> source.getPopularManga(page, continuation) }
+            invokeAbi<MangasPage> { continuation -> source.getPopularManga(page, continuation) }
         }
 
     @JvmStatic
     fun latest(source: CatalogueSource, page: Int): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi { continuation -> source.getLatestUpdates(page, continuation) }
+            invokeAbi<MangasPage> { continuation -> source.getLatestUpdates(page, continuation) }
         }
 
     @JvmStatic
     fun search(source: CatalogueSource, page: Int, query: String, filters: FilterList): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi { continuation -> source.getSearchManga(page, query, filters, continuation) }
+            invokeAbi<MangasPage> { continuation -> source.getSearchManga(page, query, filters, continuation) }
         }
 
     @JvmStatic
@@ -49,7 +49,7 @@ object ExtensionSuspendBridge {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = runBlocking(Dispatchers.IO) {
-        invokeAbi { continuation ->
+        invokeAbi<SMangaUpdate> { continuation ->
             source.getMangaUpdate(manga, chapters, fetchDetails, fetchChapters, continuation)
         }
     }
@@ -57,6 +57,6 @@ object ExtensionSuspendBridge {
     @JvmStatic
     fun pages(source: Source, chapter: SChapter): List<Page> =
         runBlocking(Dispatchers.IO) {
-            invokeAbi { continuation -> source.getPageList(chapter, continuation) }
+            invokeAbi<List<Page>> { continuation -> source.getPageList(chapter, continuation) }
         }
 }
