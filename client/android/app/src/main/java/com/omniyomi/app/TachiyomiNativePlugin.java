@@ -140,6 +140,43 @@ public class TachiyomiNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getLatestManga(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        int page = call.getInt("page", 1);
+        if (sourceId == null) {
+            call.reject("sourceId é obrigatório");
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                MangasPage res = manager.getLatestManga(sourceId, page);
+                JSArray mangas = new JSArray();
+                for (SManga m : res.getMangas()) {
+                    JSObject mo = new JSObject();
+                    mo.put("id", m.getUrl());
+                    mo.put("sourceId", sourceId);
+                    mo.put("title", m.getTitle());
+                    mo.put("url", m.getUrl());
+                    mo.put("coverUrl", m.getThumbnail_url());
+                    mo.put("author", m.getAuthor());
+                    mo.put("artist", m.getArtist());
+                    mo.put("description", m.getDescription());
+                    mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
+                    mangas.put(mo);
+                }
+                JSObject ret = new JSObject();
+                ret.put("manga", mangas);
+                ret.put("hasNextPage", res.getHasNextPage());
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "Erro getLatestManga na fonte " + sourceId, e);
+                call.reject("Erro ao buscar lançamentos da extensão: " + e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
     public void searchManga(PluginCall call) {
         String sourceId = call.getString("sourceId");
         String query = call.getString("query", "");
