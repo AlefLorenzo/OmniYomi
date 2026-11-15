@@ -9,7 +9,7 @@ import okhttp3.RequestBody;
 public class NetworkHelper {
     private static OkHttpClient client;
 
-    public static synchronized OkHttpClient getClient() {
+    public synchronized OkHttpClient getClient() {
         if (client == null) {
             client = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
@@ -19,7 +19,26 @@ public class NetworkHelper {
                 .followSslRedirects(true)
                 .build();
         }
+        return getSharedClient();
+    }
+
+    public static synchronized OkHttpClient getDefaultClient() { return getSharedClient(); }
+
+    private static synchronized OkHttpClient getSharedClient() {
+        if (client == null) {
+            client = new OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build();
+        }
         return client;
+    }
+
+    public String defaultUserAgentProvider() {
+        return "Mozilla/5.0 (Linux; Android 13; OmniYomi) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
     }
 
     public static Request GET(String url, Headers headers) {
