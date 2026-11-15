@@ -12,10 +12,53 @@ export interface ConfigurableSourceInfo {
   needsConfiguration?: boolean;
 }
 
-export interface NativeResponse<T> {
-  error?: boolean;
+// Tipos de resposta nativa (formato real retornado pelo plugin Java)
+export interface NativeSourceResponse {
+  manga?: any[];
+  hasNextPage?: boolean;
+  chapters?: any[];
+  pages?: any[];
+  totalPages?: number;
+  isOffline?: boolean;
+  downloads?: any[];
+  totalBytes?: number;
+  formatted?: string;
+  success?: boolean;
   message?: string;
-  [key: string]: any;
+  count?: number;
+  error?: boolean;
+  sourceId?: string;
+  name?: string;
+  isConfigurable?: boolean;
+  configuration?: SourceConfiguration;
+  needsConfiguration?: boolean;
+  isNative?: boolean;
+  pkg?: string;
+  sources?: any[];
+  isInstalled?: boolean;
+  isEnabled?: boolean;
+  hasPopular?: boolean;
+  hasLatest?: boolean;
+  supportsSearch?: boolean;
+  lang?: string;
+  version?: string;
+  iconUrl?: string;
+  baseUrl?: string;
+  id?: string;
+  nativeSourceId?: string;
+  nativeSource?: string;
+  title?: string;
+  coverUrl?: string;
+  author?: string;
+  artist?: string;
+  description?: string;
+  status?: string;
+  sourceMangaId?: string;
+  inLibrary?: boolean;
+  isFavorite?: boolean;
+  categoryId?: string;
+  savedAt?: string;
+  wasInLibraryBeforeFavorite?: boolean;
 }
 
 export interface TachiyomiNativePluginInterface {
@@ -23,30 +66,38 @@ export interface TachiyomiNativePluginInterface {
   installExtension(options: { apkUrl: string; pkg: string }): Promise<{ success: boolean; pkg: string; sources: any[] }>;
   uninstallExtension(options: { pkg: string }): Promise<{ success: boolean }>;
   getInstalledSources(): Promise<{ sources: any[] }>;
-  getPopularManga(options: { sourceId: string; page?: number }): Promise<NativeResponse<{ manga: any[]; hasNextPage: boolean }>>;
-  getLatestManga(options: { sourceId: string; page?: number }): Promise<NativeResponse<{ manga: any[]; hasNextPage: boolean }>>;
-  searchManga(options: { sourceId: string; query: string; page?: number }): Promise<NativeResponse<{ manga: any[]; hasNextPage: boolean }>>;
-  getMangaDetails(options: { sourceId: string; mangaUrl: string }): Promise<NativeResponse<any>>;
-  getChapterList(options: { sourceId: string; mangaUrl: string }): Promise<NativeResponse<{ chapters: any[] }>>;
-  getPageList(options: { sourceId: string; chapterUrl: string }): Promise<NativeResponse<{ pages: any[]; totalPages: number }>>;
-  downloadChapter(options: { sourceId: string; mangaId: string; chapterId: string; imageUrls: string[] }): Promise<NativeResponse<{ success: boolean }>>;
-  getOfflinePages(options: { sourceId: string; mangaId: string; chapterId: string }): Promise<NativeResponse<{ isOffline: boolean; pages: any[]; totalPages: number }>>;
-  downloadChapterFromSource(options: { sourceId: string; mangaId: string; chapterId: string }): Promise<NativeResponse<{ success: boolean }>>;
-  getDownloadedChapters(): Promise<NativeResponse<{ downloads: any[] }>>;
-  getStorageUsage(): Promise<NativeResponse<{ totalBytes: number; formatted: string }>>;
-  deleteOfflineChapter(options: { chapterId: string }): Promise<NativeResponse<{ success: boolean }>>;
-  deleteAllOfflineDownloads(): Promise<NativeResponse<{ success: boolean; deletedFolders: number }>>;
+  getPopularManga(options: { sourceId: string; page?: number }): Promise<NativeSourceResponse>;
+  getLatestManga(options: { sourceId: string; page?: number }): Promise<NativeSourceResponse>;
+  searchManga(options: { sourceId: string; query: string; page?: number }): Promise<NativeSourceResponse>;
+  getMangaDetails(options: { sourceId: string; mangaUrl: string }): Promise<NativeSourceResponse>;
+  getChapterList(options: { sourceId: string; mangaUrl: string }): Promise<NativeSourceResponse>;
+  getPageList(options: { sourceId: string; chapterUrl: string }): Promise<NativeSourceResponse>;
+  downloadChapter(options: { sourceId: string; mangaId: string; chapterId: string; imageUrls: string[] }): Promise<NativeSourceResponse>;
+  getOfflinePages(options: { sourceId: string; mangaId: string; chapterId: string }): Promise<NativeSourceResponse>;
+  downloadChapterFromSource(options: { sourceId: string; mangaId: string; chapterId: string }): Promise<NativeSourceResponse>;
+  getDownloadedChapters(): Promise<NativeSourceResponse>;
+  getStorageUsage(): Promise<NativeSourceResponse>;
+  deleteOfflineChapter(options: { chapterId: string }): Promise<NativeSourceResponse>;
+  deleteAllOfflineDownloads(): Promise<NativeSourceResponse>;
 
   // Configuração de fontes configuráveis
-  getConfigurableSourceInfo(options: { sourceId: string }): Promise<NativeResponse<ConfigurableSourceInfo>>;
-  saveSourceConfiguration(options: { sourceId: string; configuration: SourceConfiguration }): Promise<NativeResponse<{ success: boolean; message: string }>>;
-  testSourceConnection(options: { sourceId: string }): Promise<NativeResponse<{ success: boolean; message: string; count?: number }>>;
+  getConfigurableSourceInfo(options: { sourceId: string }): Promise<NativeSourceResponse>;
+  saveSourceConfiguration(options: { sourceId: string; configuration: SourceConfiguration }): Promise<NativeSourceResponse>;
+  testSourceConnection(options: { sourceId: string }): Promise<NativeSourceResponse>;
 }
 
 export const TachiyomiNative = registerPlugin<TachiyomiNativePluginInterface>('TachiyomiNative');
 
 let isNativeSupported: boolean | null = null;
 let configurableSourcesCache: ConfigurableSourceInfo[] | null = null;
+
+// Helper para lidar com respostas nativas de forma consistente
+function unwrapNativeResponse<T>(res: NativeSourceResponse): T {
+  if (res?.error) {
+    throw new Error(res.message || 'Erro na operação nativa');
+  }
+  return res as T;
+}
 
 export async function checkIsNative(): Promise<boolean> {
   if (isNativeSupported !== null) return isNativeSupported;
@@ -70,8 +121,15 @@ export async function getConfigurableSources(): Promise<ConfigurableSourceInfo[]
     for (const src of sources) {
       try {
         const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: src.id });
+        // O plugin retorna NativeSourceResponse, precisamos extrair os campos
         if (info.isConfigurable) {
-          configurable.push(info);
+          configurable.push({
+            sourceId: info.sourceId || src.id,
+            name: info.name || src.name,
+            isConfigurable: info.isConfigurable,
+            configuration: info.configuration,
+            needsConfiguration: info.needsConfiguration,
+          });
         }
       } catch {}
     }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle, Cpu, AlertCircle, CheckCircle2, Loader2, FlaskConical, Settings, Key, TestTube2, AlertTriangle } from 'lucide-react';
 import { api, getApiBaseUrl, setApiBaseUrl, isCapacitorApp } from '../lib/api';
-import { TachiyomiNative, checkIsNative, type ConfigurableSourceInfo } from '../lib/nativeBridge';
+import { TachiyomiNative, checkIsNative, getConfigurableSources, type ConfigurableSourceInfo } from '../lib/nativeBridge';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
 import { checkForUpdate, CURRENT_VERSION, type ReleaseInfo } from '../lib/updater';
@@ -52,16 +52,8 @@ export function SettingsPage() {
       const sources = res?.sources || [];
       setNativeSources(sources);
 
-      // Carregar info de fontes configuráveis
-      const configurable: ConfigurableSourceInfo[] = [];
-      for (const src of sources) {
-        try {
-          const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: src.id });
-          if (info.isConfigurable) {
-            configurable.push(info);
-          }
-        } catch {}
-      }
+      // Carregar info de fontes configuráveis usando a função auxiliar
+      const configurable = await getConfigurableSources();
       setConfigurableSources(configurable);
     } catch {}
   };
@@ -107,8 +99,10 @@ export function SettingsPage() {
         configuration: sourceConfig,
       });
       // Recarregar info da fonte
-      const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: configuringSource.sourceId });
-      setConfigurableSources(prev => prev.map(s => s.sourceId === info.sourceId ? info : s));
+      const info = await getConfigurableSources().then(list => list.find(s => s.sourceId === configuringSource.sourceId));
+      if (info) {
+        setConfigurableSources(prev => prev.map(s => s.sourceId === info.sourceId ? info : s));
+      }
       show(`Configuração de "${configuringSource.name}" salva com sucesso!`, 'success');
       closeSourceConfig();
     } catch (e: any) {
@@ -124,15 +118,19 @@ export function SettingsPage() {
     setConfigTestResult(null);
     try {
       const result = await TachiyomiNative.testSourceConnection({ sourceId: configuringSource.sourceId });
-      setConfigTestResult(result);
-      if (result.success) {
-        show(`✅ ${result.message}`, 'success');
+      // O resultado vem como NativeSourceResponse, extrair success e message
+      const success = result.success === true;
+      const message = result.message || (success ? 'Conexão OK' : 'Falha na conexão');
+      setConfigTestResult({ success, message });
+      if (success) {
+        show(`✅ ${message}`, 'success');
       } else {
-        show(`❌ ${result.message}`, 'error');
+        show(`❌ ${message}`, 'error');
       }
     } catch (e: any) {
-      setConfigTestResult({ success: false, message: e.message });
-      show(`Erro no teste: ${e.message}`, 'error');
+      const message = e.message || 'Erro no teste';
+      setConfigTestResult({ success: false, message });
+      show(`Erro no teste: ${message}`, 'error');
     } finally {
       setTestingConfig(null);
     }

@@ -1,7 +1,8 @@
-import { TachiyomiNative, checkIsNative, getConfigurableSources, sourceNeedsConfiguration, clearConfigurableSourcesCache, type ConfigurableSourceInfo, type NativeResponse } from './nativeBridge';
+import { TachiyomiNative, checkIsNative, getConfigurableSources, sourceNeedsConfiguration, clearConfigurableSourcesCache, type ConfigurableSourceInfo } from './nativeBridge';
+import type { NativeSourceResponse } from './nativeBridge';
 
 // Helper para lidar com respostas nativas de forma consistente
-async function handleNativeResponse<T>(promise: Promise<NativeResponse<T>>): Promise<T> {
+async function handleNativeResponse<T>(promise: Promise<NativeSourceResponse>): Promise<T> {
   const res = await promise;
   if (res?.error) {
     throw new Error(res.message || 'Erro na operação nativa');
