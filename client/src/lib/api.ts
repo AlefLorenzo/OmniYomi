@@ -753,8 +753,38 @@ export const api = {
       throw new Error(`Fonte "${sourceId}" não disponível para pesquisa.`);
     }
   },
-  checkSourceHealth: (id: string) => request<any>(`/sources/${id}/health`),
-  toggleSource: (id: string, enabled: boolean) => request<any>(`/sources/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  checkSourceHealth: async (id: string) => {
+    if (await checkIsNative()) {
+      try {
+        const result = await TachiyomiNative.getPopularManga({ sourceId: id, page: 1 });
+        const count = result?.manga?.length || 0;
+        return {
+          status: 'OK',
+          message: `Fonte executada localmente: ${count} obra(s) retornadas.`,
+        };
+      } catch (error: any) {
+        return {
+          status: 'ERROR',
+          message: error?.message || 'Falha ao executar a extensão neste aparelho.',
+        };
+      }
+    }
+    return request<any>(`/sources/${encodeURIComponent(id)}/health`);
+  },
+  toggleSource: async (id: string, enabled: boolean) => {
+    if (await checkIsNative()) {
+      const installed = getLocalInstalledSources();
+      const index = installed.findIndex((source: any) => String(source.id) === String(id));
+      if (index < 0) throw new Error(`Fonte ${id} não encontrada nos metadados locais.`);
+      installed[index] = { ...installed[index], isEnabled: enabled };
+      saveLocalInstalledSources(installed);
+      return { success: true, enabled };
+    }
+    return request<any>(`/sources/${encodeURIComponent(id)}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
   globalSearch: async (q: string) => {
     try {
       return await request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`);
@@ -1058,17 +1088,12 @@ export const api = {
   },
   uninstallExtracted: async (pkg: string) => {
     if (await checkIsNative()) {
-      try {
-        await TachiyomiNative.uninstallExtension({ pkg });
-      } catch {}
-    }
-    try {
-      return await request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' });
-    } catch {
-      const installed = getLocalInstalledSources().filter((s: any) => s.pkg !== pkg && s.id !== pkg);
+      const result = await TachiyomiNative.uninstallExtension({ pkg });
+      const installed = getLocalInstalledSources().filter((source: any) => source.pkg !== pkg);
       saveLocalInstalledSources(installed);
-      return { success: true };
+      return result || { success: true };
     }
+    return request<any>(`/extensions/extracted/${encodeURIComponent(pkg)}`, { method: 'DELETE' });
   },
 
   // Manga
