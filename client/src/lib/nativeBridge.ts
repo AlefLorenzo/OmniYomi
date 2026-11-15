@@ -13,6 +13,10 @@ export interface TachiyomiNativePluginInterface {
   getPageList(options: { sourceId: string; chapterUrl: string }): Promise<{ pages: any[]; totalPages: number }>;
   downloadChapter(options: { sourceId: string; mangaId: string; chapterId: string; imageUrls: string[] }): Promise<{ success: boolean }>;
   getOfflinePages(options: { sourceId: string; mangaId: string; chapterId: string }): Promise<{ isOffline: boolean; pages: any[]; totalPages: number }>;
+  getDownloadedChapters(): Promise<{ downloads: any[] }>;
+  getStorageUsage(): Promise<{ totalBytes: number; formatted: string }>;
+  deleteOfflineChapter(options: { chapterId: string }): Promise<{ success: boolean }>;
+  deleteAllOfflineDownloads(): Promise<{ success: boolean; deletedFolders: number }>;
 }
 
 export const TachiyomiNative = registerPlugin<TachiyomiNativePluginInterface>('TachiyomiNative');
