@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { WsProvider } from './lib/ws';
 import { ToastProvider } from './components/ui/ToastProvider';
 import { UpdateChecker } from './components/UpdateChecker';
@@ -16,7 +16,7 @@ import { ReaderPage } from './pages/ReaderPage';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <WsProvider>
         <ToastProvider>
           <Routes>
@@ -39,6 +39,6 @@ export default function App() {
           <UpdateChecker />
         </ToastProvider>
       </WsProvider>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

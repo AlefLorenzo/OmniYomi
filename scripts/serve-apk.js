@@ -220,7 +220,7 @@ function buildHtml(apks, ips) {
       <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 12px;">
         Acesse o OmniYomi com todas as fontes, extensões e correções mais recentes direto pelo navegador do celular:
       </p>
-      <a class="btn" href="/app" style="background: linear-gradient(135deg, #9333ea, #6366f1); width: 100%; justify-content: center; padding: 12px;">
+      <a class="btn" href="/app/" style="background: linear-gradient(135deg, #9333ea, #6366f1); width: 100%; justify-content: center; padding: 12px;">
         🚀 Abrir OmniYomi Atualizado no Navegador
       </a>
     </div>
@@ -306,25 +306,27 @@ function startServer() {
     }
 
     // Servir aplicativo web SPA do cliente em /app (para usar direto sem precisar reinstalar APK)
-    if (url.pathname.startsWith('/app') || url.pathname.startsWith('/assets/')) {
-      const CLIENT_DIST = path.join(ROOT, 'client', 'dist');
-      let reqPath = url.pathname;
-      if (reqPath.startsWith('/app')) {
-        reqPath = reqPath.replace(/^\/app/, '');
-      }
-      if (!reqPath || reqPath === '/') reqPath = '/index.html';
+    const CLIENT_DIST = path.join(ROOT, 'client', 'dist');
 
-      let filePath = path.join(CLIENT_DIST, reqPath);
-      // Se não achar o arquivo específico, serve index.html (SPA routing)
-      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-        filePath = path.join(CLIENT_DIST, 'index.html');
+    if (url.pathname === '/app' || url.pathname === '/app/') {
+      const indexPath = path.join(CLIENT_DIST, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        fs.createReadStream(indexPath).pipe(res);
+        return;
       }
+    }
 
-      if (fs.existsSync(filePath)) {
+    // Servir arquivos estáticos de client/dist se existirem (assets, js, css, etc.)
+    const cleanRelative = url.pathname.replace(/^\/app/, '');
+    if (cleanRelative && cleanRelative !== '/') {
+      const filePath = path.join(CLIENT_DIST, cleanRelative);
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const ext = path.extname(filePath).toLowerCase();
         const mimeTypes = {
           '.html': 'text/html; charset=utf-8',
           '.js': 'application/javascript; charset=utf-8',
+          '.mjs': 'application/javascript; charset=utf-8',
           '.css': 'text/css; charset=utf-8',
           '.json': 'application/json',
           '.png': 'image/png',
@@ -337,6 +339,16 @@ function startServer() {
         const contentType = mimeTypes[ext] || 'application/octet-stream';
         res.writeHead(200, { 'Content-Type': contentType });
         fs.createReadStream(filePath).pipe(res);
+        return;
+      }
+    }
+
+    // Rotas SPA sob /app/* caem no index.html
+    if (url.pathname.startsWith('/app/')) {
+      const indexPath = path.join(CLIENT_DIST, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        fs.createReadStream(indexPath).pipe(res);
         return;
       }
     }
