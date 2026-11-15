@@ -346,6 +346,16 @@ public class ExtensionManager {
         return s;
     }
 
+    /** Busca fonte pelo package name (para auto-instalação) */
+    public Source getSourceByPkg(String pkgName) {
+        for (Map.Entry<String, String> entry : sourceToPkg.entrySet()) {
+            if (entry.getValue().equals(pkgName)) {
+                return loadedSources.get(entry.getKey());
+            }
+        }
+        return null;
+    }
+
     public Collection<Source> getAllSources() {
         return loadedSources.values();
     }

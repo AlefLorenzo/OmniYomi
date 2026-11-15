@@ -117,30 +117,48 @@ public class TachiyomiNativePlugin extends Plugin {
             return;
         }
 
+        // Validação prévia: verificar se a fonte existe e está carregada
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
+            return;
+        }
+
         executor.execute(() -> {
             try {
                 MangasPage res = manager.getPopularManga(sourceId, page);
                 JSArray mangas = new JSArray();
-                for (SManga m : res.getMangas()) {
-                    JSObject mo = new JSObject();
-                    mo.put("id", m.getUrl());
-                    mo.put("sourceId", sourceId);
-                    mo.put("title", m.getTitle());
-                    mo.put("url", m.getUrl());
-                    mo.put("coverUrl", m.getThumbnail_url());
-                    mo.put("author", m.getAuthor());
-                    mo.put("artist", m.getArtist());
-                    mo.put("description", m.getDescription());
-                    mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
-                    mangas.put(mo);
+                if (res != null && res.getMangas() != null) {
+                    for (SManga m : res.getMangas()) {
+                        JSObject mo = new JSObject();
+                        mo.put("id", m.getUrl());
+                        mo.put("sourceId", sourceId);
+                        mo.put("title", m.getTitle());
+                        mo.put("url", m.getUrl());
+                        mo.put("coverUrl", m.getThumbnail_url());
+                        mo.put("author", m.getAuthor());
+                        mo.put("artist", m.getArtist());
+                        mo.put("description", m.getDescription());
+                        mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
+                        mangas.put(mo);
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("manga", mangas);
-                ret.put("hasNextPage", res.getHasNextPage());
+                ret.put("hasNextPage", res != null ? res.getHasNextPage() : false);
                 call.resolve(ret);
+            } catch (IllegalArgumentException e) {
+                Log.w(TAG, "Fonte inválida: " + sourceId + " - " + e.getMessage());
+                call.reject("Fonte não disponível: " + e.getMessage());
             } catch (Exception e) {
                 Log.e(TAG, "Erro getPopularManga na fonte " + sourceId, e);
-                call.reject("Erro ao buscar populares da extensão: " + e.getMessage());
+                // Retornar resposta de erro estruturada em vez de rejeitar
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha ao buscar populares: " + e.getMessage());
+                ret.put("manga", new JSArray());
+                ret.put("hasNextPage", false);
+                call.resolve(ret);
             }
         });
     }
@@ -154,30 +172,51 @@ public class TachiyomiNativePlugin extends Plugin {
             return;
         }
 
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
+            return;
+        }
+
         executor.execute(() -> {
             try {
                 MangasPage res = manager.getLatestManga(sourceId, page);
                 JSArray mangas = new JSArray();
-                for (SManga m : res.getMangas()) {
-                    JSObject mo = new JSObject();
-                    mo.put("id", m.getUrl());
-                    mo.put("sourceId", sourceId);
-                    mo.put("title", m.getTitle());
-                    mo.put("url", m.getUrl());
-                    mo.put("coverUrl", m.getThumbnail_url());
-                    mo.put("author", m.getAuthor());
-                    mo.put("artist", m.getArtist());
-                    mo.put("description", m.getDescription());
-                    mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
-                    mangas.put(mo);
+                if (res != null && res.getMangas() != null) {
+                    for (SManga m : res.getMangas()) {
+                        JSObject mo = new JSObject();
+                        mo.put("id", m.getUrl());
+                        mo.put("sourceId", sourceId);
+                        mo.put("title", m.getTitle());
+                        mo.put("url", m.getUrl());
+                        mo.put("coverUrl", m.getThumbnail_url());
+                        mo.put("author", m.getAuthor());
+                        mo.put("artist", m.getArtist());
+                        mo.put("description", m.getDescription());
+                        mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
+                        mangas.put(mo);
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("manga", mangas);
-                ret.put("hasNextPage", res.getHasNextPage());
+                ret.put("hasNextPage", res != null ? res.getHasNextPage() : false);
+                call.resolve(ret);
+            } catch (IllegalArgumentException e) {
+                Log.w(TAG, "Fonte não suporta recentes: " + sourceId + " - " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", e.getMessage());
+                ret.put("manga", new JSArray());
+                ret.put("hasNextPage", false);
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "Erro getLatestManga na fonte " + sourceId, e);
-                call.reject("Erro ao buscar lançamentos da extensão: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha ao buscar recentes: " + e.getMessage());
+                ret.put("manga", new JSArray());
+                ret.put("hasNextPage", false);
+                call.resolve(ret);
             }
         });
     }
@@ -192,30 +231,43 @@ public class TachiyomiNativePlugin extends Plugin {
             return;
         }
 
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
+            return;
+        }
+
         executor.execute(() -> {
             try {
                 MangasPage res = manager.searchManga(sourceId, query, page);
                 JSArray mangas = new JSArray();
-                for (SManga m : res.getMangas()) {
-                    JSObject mo = new JSObject();
-                    mo.put("id", m.getUrl());
-                    mo.put("sourceId", sourceId);
-                    mo.put("title", m.getTitle());
-                    mo.put("url", m.getUrl());
-                    mo.put("coverUrl", m.getThumbnail_url());
-                    mo.put("author", m.getAuthor());
-                    mo.put("artist", m.getArtist());
-                    mo.put("description", m.getDescription());
-                    mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
-                    mangas.put(mo);
+                if (res != null && res.getMangas() != null) {
+                    for (SManga m : res.getMangas()) {
+                        JSObject mo = new JSObject();
+                        mo.put("id", m.getUrl());
+                        mo.put("sourceId", sourceId);
+                        mo.put("title", m.getTitle());
+                        mo.put("url", m.getUrl());
+                        mo.put("coverUrl", m.getThumbnail_url());
+                        mo.put("author", m.getAuthor());
+                        mo.put("artist", m.getArtist());
+                        mo.put("description", m.getDescription());
+                        mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
+                        mangas.put(mo);
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("manga", mangas);
-                ret.put("hasNextPage", res.getHasNextPage());
+                ret.put("hasNextPage", res != null ? res.getHasNextPage() : false);
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "Erro searchManga na fonte " + sourceId, e);
-                call.reject("Erro na busca da extensão: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha na busca: " + e.getMessage());
+                ret.put("manga", new JSArray());
+                ret.put("hasNextPage", false);
+                call.resolve(ret);
             }
         });
     }
@@ -226,6 +278,12 @@ public class TachiyomiNativePlugin extends Plugin {
         String mangaUrl = call.getString("mangaUrl");
         if (sourceId == null || mangaUrl == null) {
             call.reject("sourceId e mangaUrl são obrigatórios");
+            return;
+        }
+
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
             return;
         }
 
@@ -244,7 +302,10 @@ public class TachiyomiNativePlugin extends Plugin {
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "Erro getMangaDetails", e);
-                call.reject("Erro ao carregar detalhes da obra: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha ao carregar detalhes: " + e.getMessage());
+                call.resolve(ret);
             }
         });
     }
@@ -258,28 +319,40 @@ public class TachiyomiNativePlugin extends Plugin {
             return;
         }
 
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
+            return;
+        }
+
         executor.execute(() -> {
             try {
                 List<SChapter> chapters = manager.getChapterList(sourceId, mangaUrl);
                 JSArray arr = new JSArray();
-                for (int i = 0; i < chapters.size(); i++) {
-                    SChapter c = chapters.get(i);
-                    JSObject co = new JSObject();
-                    co.put("id", c.getUrl());
-                    co.put("mangaId", mangaUrl);
-                    co.put("name", c.getName());
-                    co.put("url", c.getUrl());
-                    co.put("chapterNumber", c.getChapter_number() >= 0 ? c.getChapter_number() : (i + 1));
-                    co.put("scanlator", c.getScanlator());
-                    co.put("releasedAt", c.getDate_upload() > 0 ? String.valueOf(c.getDate_upload()) : new java.util.Date().toString());
-                    arr.put(co);
+                if (chapters != null) {
+                    for (int i = 0; i < chapters.size(); i++) {
+                        SChapter c = chapters.get(i);
+                        JSObject co = new JSObject();
+                        co.put("id", c.getUrl());
+                        co.put("mangaId", mangaUrl);
+                        co.put("name", c.getName());
+                        co.put("url", c.getUrl());
+                        co.put("chapterNumber", c.getChapter_number() >= 0 ? c.getChapter_number() : (i + 1));
+                        co.put("scanlator", c.getScanlator());
+                        co.put("releasedAt", c.getDate_upload() > 0 ? String.valueOf(c.getDate_upload()) : new java.util.Date().toString());
+                        arr.put(co);
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("chapters", arr);
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "Erro getChapterList", e);
-                call.reject("Erro ao carregar capítulos da extensão: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha ao carregar capítulos: " + e.getMessage());
+                ret.put("chapters", new JSArray());
+                call.resolve(ret);
             }
         });
     }
@@ -293,23 +366,36 @@ public class TachiyomiNativePlugin extends Plugin {
             return;
         }
 
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId + ". Instale a extensão primeiro.");
+            return;
+        }
+
         executor.execute(() -> {
             try {
                 List<Page> pages = manager.getPageList(sourceId, chapterUrl);
                 JSArray arr = new JSArray();
-                for (Page p : pages) {
-                    JSObject po = new JSObject();
-                    po.put("index", p.getIndex() + 1);
-                    po.put("url", p.getImageUrl() != null && !p.getImageUrl().isEmpty() ? p.getImageUrl() : p.getUrl());
-                    arr.put(po);
+                if (pages != null) {
+                    for (Page p : pages) {
+                        JSObject po = new JSObject();
+                        po.put("index", p.getIndex() + 1);
+                        po.put("url", p.getImageUrl() != null && !p.getImageUrl().isEmpty() ? p.getImageUrl() : p.getUrl());
+                        arr.put(po);
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("pages", arr);
-                ret.put("totalPages", pages.size());
+                ret.put("totalPages", pages != null ? pages.size() : 0);
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "Erro getPageList", e);
-                call.reject("Erro ao carregar páginas da extensão: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("error", true);
+                ret.put("message", "Falha ao carregar páginas: " + e.getMessage());
+                ret.put("pages", new JSArray());
+                ret.put("totalPages", 0);
+                call.resolve(ret);
             }
         });
     }
