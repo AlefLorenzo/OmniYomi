@@ -1,4 +1,4 @@
-import { TachiyomiNative, checkIsNative } from './nativeBridge';
+import { TachiyomiNative, checkIsNative, getConfigurableSources, sourceNeedsConfiguration, clearConfigurableSourcesCache, type ConfigurableSourceInfo } from './nativeBridge';
 
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
@@ -734,6 +734,10 @@ export const api = {
     }
     // Android nativo: usa a extensão instalada
     if (await checkIsNative()) {
+      // Verificar se a fonte precisa de configuração antes de tentar usar
+      if (await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       try {
         // Uma lista vazia é uma resposta válida da fonte (por exemplo, página sem obras).
         // A ausência da fonte é sinalizada pelo plugin nativo com uma exceção específica.
@@ -754,6 +758,9 @@ export const api = {
       return fetchMangaDexPopular(page);
     }
     if (await checkIsNative()) {
+      if (await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       try {
         return await TachiyomiNative.getLatestManga({ sourceId, page });
       } catch (e: any) {
@@ -767,6 +774,9 @@ export const api = {
       return searchMangaDex(q, page);
     }
     if (await checkIsNative()) {
+      if (await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       try {
         const nat = await TachiyomiNative.searchManga({ sourceId, query: q, page });
         if (nat?.manga?.length > 0) return nat;
@@ -783,6 +793,13 @@ export const api = {
   },
   checkSourceHealth: async (id: string) => {
     if (await checkIsNative()) {
+      // Verificar se precisa de configuração
+      if (await sourceNeedsConfiguration(id)) {
+        return {
+          status: 'ERROR',
+          message: `Esta extensão requer configuração. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`,
+        };
+      }
       try {
         const result = await TachiyomiNative.getPopularManga({ sourceId: id, page: 1 });
         const count = result?.manga?.length || 0;
@@ -1149,6 +1166,9 @@ export const api = {
     }
     // Android nativo
     if (await checkIsNative()) {
+      if (sourceId && await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       try {
         const nat = await TachiyomiNative.getMangaDetails({ sourceId, mangaUrl: id });
         if (nat && nat.title) return nat;
@@ -1169,6 +1189,9 @@ export const api = {
       return getMangaDexChapters(mangaId);
     }
     if (await checkIsNative()) {
+      if (sourceId && await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       try {
         const nat = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
         if (nat?.chapters?.length > 0) return nat.chapters;
@@ -1186,6 +1209,9 @@ export const api = {
   refreshManga: async (mangaId: string, sourceId?: string) => {
     if (await checkIsNative()) {
       if (!sourceId) throw new Error('A fonte desta obra não está identificada na biblioteca.');
+      if (await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       const result = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
       const chapters = result?.chapters || [];
       const library = getLocalLibrary();
@@ -1337,6 +1363,9 @@ export const api = {
       return getMangaDexPages(chapterId);
     }
     if (await checkIsNative()) {
+      if (sourceId && await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
+      }
       // Tenta offline primeiro
       if (mangaId) {
         try {
@@ -1455,6 +1484,9 @@ export const api = {
     if (await checkIsNative()) {
       if (!sourceId || !mangaId) {
         throw new Error('sourceId e mangaId são necessários para baixar capítulos no aparelho.');
+      }
+      if (await sourceNeedsConfiguration(sourceId)) {
+        throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
       try {
         const result = await TachiyomiNative.downloadChapterFromSource({

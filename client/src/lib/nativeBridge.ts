@@ -1,5 +1,17 @@
 import { registerPlugin } from '@capacitor/core';
 
+export interface SourceConfiguration {
+  [key: string]: string;
+}
+
+export interface ConfigurableSourceInfo {
+  sourceId: string;
+  name: string;
+  isConfigurable: boolean;
+  configuration?: SourceConfiguration;
+  needsConfiguration?: boolean;
+}
+
 export interface TachiyomiNativePluginInterface {
   isAvailable(): Promise<{ available: boolean; platform: string }>;
   installExtension(options: { apkUrl: string; pkg: string }): Promise<{ success: boolean; pkg: string; sources: any[] }>;
@@ -18,11 +30,17 @@ export interface TachiyomiNativePluginInterface {
   getStorageUsage(): Promise<{ totalBytes: number; formatted: string }>;
   deleteOfflineChapter(options: { chapterId: string }): Promise<{ success: boolean }>;
   deleteAllOfflineDownloads(): Promise<{ success: boolean; deletedFolders: number }>;
+
+  // Configuração de fontes configuráveis
+  getConfigurableSourceInfo(options: { sourceId: string }): Promise<ConfigurableSourceInfo>;
+  saveSourceConfiguration(options: { sourceId: string; configuration: SourceConfiguration }): Promise<{ success: boolean; message: string }>;
+  testSourceConnection(options: { sourceId: string }): Promise<{ success: boolean; message: string; count?: number }>;
 }
 
 export const TachiyomiNative = registerPlugin<TachiyomiNativePluginInterface>('TachiyomiNative');
 
 let isNativeSupported: boolean | null = null;
+let configurableSourcesCache: ConfigurableSourceInfo[] | null = null;
 
 export async function checkIsNative(): Promise<boolean> {
   if (isNativeSupported !== null) return isNativeSupported;
@@ -33,4 +51,37 @@ export async function checkIsNative(): Promise<boolean> {
     isNativeSupported = false;
   }
   return isNativeSupported;
+}
+
+export async function getConfigurableSources(): Promise<ConfigurableSourceInfo[]> {
+  if (configurableSourcesCache !== null) return configurableSourcesCache;
+  try {
+    const native = await checkIsNative();
+    if (!native) return [];
+    const res = await TachiyomiNative.getInstalledSources();
+    const sources = res?.sources || [];
+    const configurable: ConfigurableSourceInfo[] = [];
+    for (const src of sources) {
+      try {
+        const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: src.id });
+        if (info.isConfigurable) {
+          configurable.push(info);
+        }
+      } catch {}
+    }
+    configurableSourcesCache = configurable;
+    return configurable;
+  } catch {
+    return [];
+  }
+}
+
+export async function sourceNeedsConfiguration(sourceId: string): Promise<boolean> {
+  const configurable = await getConfigurableSources();
+  const source = configurable.find(s => s.sourceId === sourceId);
+  return source?.needsConfiguration === true;
+}
+
+export function clearConfigurableSourcesCache(): void {
+  configurableSourcesCache = null;
 }

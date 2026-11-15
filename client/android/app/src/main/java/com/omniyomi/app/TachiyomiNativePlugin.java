@@ -9,6 +9,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import eu.kanade.tachiyomi.source.Source;
+import eu.kanade.tachiyomi.source.ConfigurableSource;
 import eu.kanade.tachiyomi.source.model.*;
 
 import java.io.File;
@@ -430,5 +431,121 @@ public class TachiyomiNativePlugin extends Plugin {
         ret.put("pages", arr);
         ret.put("totalPages", files.size());
         call.resolve(ret);
+    }
+
+    // ─── Configuração de fontes configuráveis (ConfigurableSource) ──────────────
+
+    @PluginMethod
+    public void getConfigurableSourceInfo(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        if (sourceId == null) {
+            call.reject("sourceId é obrigatório");
+            return;
+        }
+
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId);
+            return;
+        }
+
+        boolean isConfigurable = source instanceof ConfigurableSource;
+        JSObject ret = new JSObject();
+        ret.put("sourceId", sourceId);
+        ret.put("name", source.getName());
+        ret.put("isConfigurable", isConfigurable);
+
+        if (isConfigurable) {
+            ConfigurableSource configSource = (ConfigurableSource) source;
+            android.content.SharedPreferences prefs = configSource.getSourcePreferences();
+            JSObject config = new JSObject();
+            // Carregar configurações existentes
+            Map<String, ?> allPrefs = prefs.getAll();
+            for (Map.Entry<String, ?> entry : allPrefs.entrySet()) {
+                config.put(entry.getKey(), String.valueOf(entry.getValue()));
+            }
+            ret.put("configuration", config);
+            ret.put("needsConfiguration", !prefs.contains("serverUrl") || prefs.getString("serverUrl", "").isEmpty());
+        }
+
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void saveSourceConfiguration(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        JSObject config = call.getData("configuration");
+        if (sourceId == null || config == null) {
+            call.reject("sourceId e configuration são obrigatórios");
+            return;
+        }
+
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId);
+            return;
+        }
+
+        if (!(source instanceof ConfigurableSource)) {
+            call.reject("Esta fonte não suporta configuração");
+            return;
+        }
+
+        ConfigurableSource configSource = (ConfigurableSource) source;
+        android.content.SharedPreferences prefs = configSource.getSourcePreferences();
+        android.content.SharedPreferences.Editor editor = prefs.edit();
+
+        // Salvar todas as chaves do objeto de configuração
+        for (String key : config.keys()) {
+            String value = config.getString(key);
+            if (value != null) {
+                editor.putString(key, value);
+            }
+        }
+        editor.apply();
+
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("message", "Configuração salva com sucesso");
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void testSourceConnection(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        if (sourceId == null) {
+            call.reject("sourceId é obrigatório");
+            return;
+        }
+
+        Source source = manager.getSource(sourceId);
+        if (source == null) {
+            call.reject("Fonte não encontrada: " + sourceId);
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                if (source instanceof eu.kanade.tachiyomi.source.CatalogueSource) {
+                    eu.kanade.tachiyomi.source.CatalogueSource catSource = (eu.kanade.tachiyomi.source.CatalogueSource) source;
+                    // Tentar buscar a primeira página do catálogo
+                    MangasPage res = ExtensionSuspendBridge.popular(catSource, 1);
+                    int count = res.getMangas() != null ? res.getMangas().size() : 0;
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("message", "Conexão bem-sucedida: " + count + " obra(s) encontrada(s)");
+                    ret.put("count", count);
+                    call.resolve(ret);
+                } else {
+                    call.reject("Esta fonte não suporta catálogo");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Erro ao testar conexão da fonte " + sourceId, e);
+                JSObject ret = new JSObject();
+                ret.put("success", false);
+                ret.put("message", "Falha na conexão: " + e.getMessage());
+                call.resolve(ret);
+            }
+        });
     }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle, Cpu, AlertCircle, CheckCircle2, Loader2, FlaskConical } from 'lucide-react';
+import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle, Cpu, AlertCircle, CheckCircle2, Loader2, FlaskConical, Settings, Key, TestTube2, AlertTriangle } from 'lucide-react';
 import { api, getApiBaseUrl, setApiBaseUrl, isCapacitorApp } from '../lib/api';
-import { TachiyomiNative, checkIsNative } from '../lib/nativeBridge';
+import { TachiyomiNative, checkIsNative, type ConfigurableSourceInfo } from '../lib/nativeBridge';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
 import { checkForUpdate, CURRENT_VERSION, type ReleaseInfo } from '../lib/updater';
@@ -30,6 +30,14 @@ export function SettingsPage() {
   const [diagResults, setDiagResults] = useState<Record<string, string>>({});
   const [isNativePlatform, setIsNativePlatform] = useState(isCapacitorApp());
 
+  // Configuração de extensões configuráveis
+  const [configurableSources, setConfigurableSources] = useState<ConfigurableSourceInfo[]>([]);
+  const [configuringSource, setConfiguringSource] = useState<ConfigurableSourceInfo | null>(null);
+  const [sourceConfig, setSourceConfig] = useState<Record<string, string>>({});
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [testingConfig, setTestingConfig] = useState<string | null>(null);
+  const [configTestResult, setConfigTestResult] = useState<{success: boolean; message: string} | null>(null);
+
   useEffect(() => {
     loadData();
     loadNativeSources();
@@ -41,7 +49,20 @@ export function SettingsPage() {
     if (!native) return;
     try {
       const res = await TachiyomiNative.getInstalledSources();
-      setNativeSources(res?.sources || []);
+      const sources = res?.sources || [];
+      setNativeSources(sources);
+
+      // Carregar info de fontes configuráveis
+      const configurable: ConfigurableSourceInfo[] = [];
+      for (const src of sources) {
+        try {
+          const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: src.id });
+          if (info.isConfigurable) {
+            configurable.push(info);
+          }
+        } catch {}
+      }
+      setConfigurableSources(configurable);
     } catch {}
   };
 
@@ -57,6 +78,74 @@ export function SettingsPage() {
       setDiagTesting(prev => ({ ...prev, [sourceId]: 'error' }));
       setDiagResults(prev => ({ ...prev, [sourceId]: `❌ Falha: ${e.message}` }));
     }
+  };
+
+  // ─── Configuração de extensões configuráveis ──────────────────────────────
+
+  const openSourceConfig = async (info: ConfigurableSourceInfo) => {
+    setConfiguringSource(info);
+    setSourceConfig(info.configuration || {});
+    setConfigTestResult(null);
+  };
+
+  const closeSourceConfig = () => {
+    setConfiguringSource(null);
+    setSourceConfig({});
+    setConfigTestResult(null);
+  };
+
+  const handleConfigChange = (key: string, value: string) => {
+    setSourceConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveSourceConfig = async () => {
+    if (!configuringSource) return;
+    setSavingConfig(true);
+    try {
+      await TachiyomiNative.saveSourceConfiguration({
+        sourceId: configuringSource.sourceId,
+        configuration: sourceConfig,
+      });
+      // Recarregar info da fonte
+      const info = await TachiyomiNative.getConfigurableSourceInfo({ sourceId: configuringSource.sourceId });
+      setConfigurableSources(prev => prev.map(s => s.sourceId === info.sourceId ? info : s));
+      show(`Configuração de "${configuringSource.name}" salva com sucesso!`, 'success');
+      closeSourceConfig();
+    } catch (e: any) {
+      show(`Erro ao salvar configuração: ${e.message}`, 'error');
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleTestSourceConfig = async () => {
+    if (!configuringSource) return;
+    setTestingConfig(configuringSource.sourceId);
+    setConfigTestResult(null);
+    try {
+      const result = await TachiyomiNative.testSourceConnection({ sourceId: configuringSource.sourceId });
+      setConfigTestResult(result);
+      if (result.success) {
+        show(`✅ ${result.message}`, 'success');
+      } else {
+        show(`❌ ${result.message}`, 'error');
+      }
+    } catch (e: any) {
+      setConfigTestResult({ success: false, message: e.message });
+      show(`Erro no teste: ${e.message}`, 'error');
+    } finally {
+      setTestingConfig(null);
+    }
+  };
+
+  const getConfigFieldType = (key: string): 'text' | 'password' | 'number' => {
+    if (key.toLowerCase().includes('password') || key.toLowerCase().includes('token') || key.toLowerCase().includes('secret') || key.toLowerCase().includes('key')) {
+      return 'password';
+    }
+    if (key.toLowerCase().includes('port')) {
+      return 'number';
+    }
+    return 'text';
   };
 
   const loadData = async () => {
@@ -428,68 +517,244 @@ export function SettingsPage() {
 
       {/* Diagnóstico de Extensões — apenas no Android nativo */}
       {isNativePlatform && (
-        <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
-            <h2 className="text-base font-semibold text-gray-200 flex items-center gap-2">
-              <Cpu size={16} className="text-purple-400" /> Diagnóstico de Extensões
-            </h2>
-            <button
-              onClick={loadNativeSources}
-              className="text-xs text-gray-400 hover:text-purple-400 flex items-center gap-1"
-            >
-              <RefreshCw size={12} /> Recarregar
-            </button>
-          </div>
-
-          {nativeSources.length === 0 ? (
-            <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-yellow-400 flex items-center gap-2">
-              <AlertCircle size={14} />
-              <span>Nenhuma extensão carregada nativamente. Instale extensões na aba <strong>Fontes</strong>.</span>
+        <>
+          {/* Diagnóstico de Extensões */}
+          <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+              <h2 className="text-base font-semibold text-gray-200 flex items-center gap-2">
+                <Cpu size={16} className="text-purple-400" /> Diagnóstico de Extensões
+              </h2>
+              <button
+                onClick={loadNativeSources}
+                className="text-xs text-gray-400 hover:text-purple-400 flex items-center gap-1"
+              >
+                <RefreshCw size={12} /> Recarregar
+              </button>
             </div>
-          ) : (
-            <div className="space-y-2">
+
+            {nativeSources.length === 0 ? (
+              <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-yellow-400 flex items-center gap-2">
+                <AlertCircle size={14} />
+                <span>Nenhuma extensão carregada nativamente. Instale extensões na aba <strong>Fontes</strong>.</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">
+                  {nativeSources.length} extensão(ões) carregada(s) no motor nativo Android.
+                  Use <strong>Testar</strong> para verificar se cada uma consulta sua fonte corretamente, sem servidor.
+                </p>
+                {nativeSources.map((src: any) => {
+                  const state = diagTesting[src.id] || 'idle';
+                  return (
+                    <div key={src.id} className="bg-[#131720] border border-[#2a3040] rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-white">{src.name}</p>
+                          <p className="text-xs text-gray-500">ID: {src.id} · Idioma: {src.lang || 'all'}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {state === 'ok' && <CheckCircle2 size={14} className="text-green-400" />}
+                          {state === 'error' && <AlertCircle size={14} className="text-red-400" />}
+                          <button
+                            onClick={() => testNativeSource(src.id, src.name)}
+                            disabled={state === 'testing'}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-700/60 hover:bg-purple-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+                          >
+                            {state === 'testing'
+                              ? <><Loader2 size={11} className="animate-spin" /> Testando...</>
+                              : <><FlaskConical size={11} /> Testar</>}
+                          </button>
+                        </div>
+                      </div>
+                      {diagResults[src.id] && (
+                        <p className={`text-xs px-2 py-1 rounded ${
+                          state === 'ok' ? 'text-green-400 bg-green-900/20' :
+                          state === 'error' ? 'text-red-400 bg-red-900/20' :
+                          'text-gray-400 bg-[#0d111a]'
+                        }`}>
+                          {diagResults[src.id]}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Configuração de Extensões Configuráveis */}
+          {configurableSources.length > 0 && (
+            <section className="bg-[#1a1e29] border border-purple-500/30 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+                <h2 className="text-base font-semibold text-gray-200 flex items-center gap-2">
+                  <Settings size={16} className="text-purple-400" /> Configuração de Extensões
+                </h2>
+                <span className="text-xs text-purple-400 bg-purple-900/30 px-2 py-1 rounded">
+                  {configurableSources.length} extensão(ões) configurável(eis)
+                </span>
+              </div>
+
               <p className="text-xs text-gray-500">
-                {nativeSources.length} extensão(ões) carregada(s) no motor nativo Android.
-                Use <strong>Testar</strong> para verificar se cada uma consulta sua fonte corretamente, sem servidor.
+                Algumas extensões (como <strong>Kavita</strong>, <strong>Suwayomi</strong>, servidores OPDS) precisam de configuração
+                de servidor, autenticação ou parâmetros específicos antes de funcionar.
               </p>
-              {nativeSources.map((src: any) => {
-                const state = diagTesting[src.id] || 'idle';
-                return (
-                  <div key={src.id} className="bg-[#131720] border border-[#2a3040] rounded-lg p-3 space-y-2">
+
+              <div className="space-y-3">
+                {configurableSources.map((info: ConfigurableSourceInfo) => (
+                  <div key={info.sourceId} className="bg-[#131720] border border-[#2a3040] rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-white">{src.name}</p>
-                        <p className="text-xs text-gray-500">ID: {src.id} · Idioma: {src.lang || 'all'}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-purple-600/20 flex items-center justify-center">
+                          <Key size={18} className="text-purple-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">{info.name}</p>
+                          <p className="text-xs text-gray-500">ID: {info.sourceId}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {state === 'ok' && <CheckCircle2 size={14} className="text-green-400" />}
-                        {state === 'error' && <AlertCircle size={14} className="text-red-400" />}
+                        {info.needsConfiguration && (
+                          <span className="text-xs text-yellow-400 bg-yellow-900/30 px-2 py-1 rounded flex items-center gap-1">
+                            <AlertTriangle size={10} /> Requer configuração
+                          </span>
+                        )}
+                        {!info.needsConfiguration && (
+                          <span className="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded flex items-center gap-1">
+                            <CheckCircle2 size={10} /> Configurada
+                          </span>
+                        )}
                         <button
-                          onClick={() => testNativeSource(src.id, src.name)}
-                          disabled={state === 'testing'}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-700/60 hover:bg-purple-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+                          onClick={() => openSourceConfig(info)}
+                          disabled={configuringSource?.sourceId === info.sourceId}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-purple-700/60 hover:bg-purple-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
                         >
-                          {state === 'testing'
-                            ? <><Loader2 size={11} className="animate-spin" /> Testando...</>
-                            : <><FlaskConical size={11} /> Testar</>}
+                          {configuringSource?.sourceId === info.sourceId
+                            ? <><Loader2 size={11} className="animate-spin" /> Editando...</>
+                            : <><Settings size={11} /> {info.needsConfiguration ? 'Configurar' : 'Editar'}</>}
                         </button>
                       </div>
                     </div>
-                    {diagResults[src.id] && (
-                      <p className={`text-xs px-2 py-1 rounded ${
-                        state === 'ok' ? 'text-green-400 bg-green-900/20' :
-                        state === 'error' ? 'text-red-400 bg-red-900/20' :
-                        'text-gray-400 bg-[#0d111a]'
-                      }`}>
-                        {diagResults[src.id]}
-                      </p>
-                    )}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Modal de Configuração da Extensão */}
+          {configuringSource && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={closeSourceConfig}>
+              <div className="bg-[#1a1e29] border border-[#2a3040] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-[#2a3040] p-4 sticky top-0 bg-[#1a1e29] z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-600/20 flex items-center justify-center">
+                      <Key size={18} className="text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold text-white">{configuringSource.name}</p>
+                      <p className="text-xs text-gray-500">Configuração da extensão</p>
+                    </div>
+                  </div>
+                  <button onClick={closeSourceConfig} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-[#2a3040] transition-colors">
+                    <AlertCircle size={20} />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {configuringSource.needsConfiguration && (
+                    <div className="bg-yellow-900/30 border border-yellow-500/30 rounded-lg p-3 text-xs text-yellow-300 flex items-start gap-2">
+                      <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                      <span>Esta extensão <strong>requer configuração</strong> antes de funcionar. Preencha os campos abaixo e teste a conexão.</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {Object.entries(configuringSource.configuration || {}).length > 0 ? (
+                      Object.entries(configuringSource.configuration || {}).map(([key, value]) => (
+                        <div key={key} className="space-y-1">
+                          <label className="text-xs text-gray-400 font-medium block mb-1 capitalize">
+                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                          </label>
+                          <input
+                            type={getConfigFieldType(key)}
+                            value={sourceConfig[key] || value || ''}
+                            onChange={e => handleConfigChange(key, e.target.value)}
+                            placeholder={key.toLowerCase().includes('url') ? 'https://seu-servidor.com' : ''}
+                            className="w-full bg-[#131720] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-gray-500 text-center">
+                        Nenhuma configuração salva. Adicione os campos necessários abaixo.
+                      </div>
+                    )}
+
+                    {/* Campo para adicionar nova configuração */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do campo (ex: serverUrl, username, password)"
+                        className="flex-1 bg-[#131720] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                        id="newConfigKey"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Valor"
+                        className="flex-1 bg-[#131720] border border-[#2a3040] text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                        id="newConfigValue"
+                      />
+                      <button
+                        onClick={() => {
+                          const keyInput = document.getElementById('newConfigKey') as HTMLInputElement;
+                          const valueInput = document.getElementById('newConfigValue') as HTMLInputElement;
+                          if (keyInput?.value && valueInput?.value) {
+                            handleConfigChange(keyInput.value, valueInput.value);
+                            keyInput.value = '';
+                            valueInput.value = '';
+                          }
+                        }}
+                        className="px-3 py-2 bg-purple-700/60 hover:bg-purple-600 text-white text-xs rounded-lg transition-colors"
+                      >
+                        <Save size={12} className="mr-1" /> Add
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t border-[#2a3040]">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleTestSourceConfig}
+                      loading={testingConfig === configuringSource.sourceId}
+                      className="flex-1"
+                    >
+                      <TestTube2 size={13} /> Testar Conexão
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveSourceConfig}
+                      loading={savingConfig}
+                      className="flex-1"
+                    >
+                      <Save size={13} /> Salvar
+                    </Button>
+                  </div>
+
+                  {configTestResult && (
+                    <div className={`p-3 rounded-lg text-xs ${
+                      configTestResult.success ? 'text-green-400 bg-green-900/20 border border-green-500/30' : 'text-red-400 bg-red-900/20 border border-red-500/30'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {configTestResult.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                        <span>{configTestResult.message}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-        </section>
+        </>
       )}
 
       {!isNativePlatform && (
