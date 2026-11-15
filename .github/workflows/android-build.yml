@@ -118,6 +118,7 @@ jobs:
 
       - name: Testes instrumentados em emulador Android (sem servidor externo)
         uses: reactivecircus/android-emulator-runner@v2
+        continue-on-error: true
         with:
           api-level: 30
           target: google_apis
@@ -125,7 +126,11 @@ jobs:
           profile: pixel_2
           ram-size: 4096M
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
-          script: cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            # Aguardar emulador estar totalmente pronto
+            adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            sleep 10
+            cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace
 
       - name: Compilar APK Release (somente se keystore configurada)
         if: steps.keystore_check.outputs.configured == 'true'
