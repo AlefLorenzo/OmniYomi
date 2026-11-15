@@ -1,16 +1,23 @@
 # 📱 OmniYomi — Leitor & Gerenciador de Mangás, Manhwas e Manhuas
 
-O **OmniYomi** é uma plataforma completa e moderna de leitura, agregação e gerenciamento de mangás, manhwas e manhuas. Inspirado no ecossistema **Tachiyomi / Suwayomi / Keiyoushi**, o OmniYomi unifica um servidor de alta performance, catálogo com normalização precisa de títulos, leitura fluida e suporte completo ao aplicativo **Android (APK)** com sincronização e leitura offline.
+O **OmniYomi** é uma plataforma de leitura e gerenciamento de mangás, manhwas e manhuas. O projeto possui uma interface web/desktop que pode usar o backend opcional e um aplicativo Android Capacitor com recursos locais. A compatibilidade das extensões depende da ABI que o runtime Android implementa; veja a matriz abaixo antes de instalar fontes.
 
 ---
 
 ## ✨ Recursos Principais
 
-### 🌐 Integração Real com Extensões Tachiyomi
-- Execução direta dos repositórios de extensões do Tachiyomi / Keiyoushi.
-- Consulta ao catálogo real por fonte individual (sem catálogos fictícios).
-- Extração de metadados, paginação completa de todos os capítulos, capas em alta definição e lista de páginas.
-- Filtragem estrita por fonte selecionada: selecionar uma extensão exibe única e exclusivamente suas obras.
+### 🌐 Repositórios e extensões
+- Consulta de índices JSON e Protobuf (`index.pb`) hospedados nos repositórios configurados.
+- Validação do APK, package name e metadados antes do carregamento.
+- O runtime nativo implementado neste código usa a ABI legada Tachiyomi 1.4 baseada em RxJava e oferece compatibilidade apenas com extensões que usem essa ABI e as interfaces disponíveis no OmniYomi.
+- Extensões com `tachiyomix.extensionLib` 1.6 ou APIs Kotlin/coroutines não são compatíveis com o runtime legado atual e são rejeitadas com mensagem de incompatibilidade, em vez de serem registradas falsamente como instaladas.
+- A lista de fontes do Android mostra somente fontes realmente carregadas pelo runtime.
+
+### 📱 Modo Android sem servidor próprio
+- No APK, a URL de backend salva pelo navegador é ignorada e as configurações locais são armazenadas no aparelho.
+- Biblioteca, favoritos, categorias, histórico e metadados de leitura usam persistência local nas operações nativas implementadas.
+- O Android consulta os repositórios diretamente e executa as operações de fontes por meio do runtime nativo disponível.
+- Isso não significa compatibilidade com todas as gerações de extensões Mihon/Tachiyomi: o runtime 1.6 ainda precisa ser implementado para suportar extensões modernas que declaram essa ABI.
 
 ### 🇧🇷 Títulos em Português (PT-BR) e Inglês (EN)
 - Sistema automático de normalização e validação de títulos.
@@ -29,8 +36,9 @@ O **OmniYomi** é uma plataforma completa e moderna de leitura, agregação e ge
 ### 📥 Downloads Físicos no Dispositivo & Leitura 100% Offline
 - **Armazenamento no Aparelho**: os capítulos baixados são salvos fisicamente no armazenamento do dispositivo (`OmniYomi/Downloads/[Fonte]/[Obra]/[Capítulo]/page-XXX.jpg`).
 - **Independência do Servidor para Leitura**: capítulos baixados abrem instantaneamente offline (`isOffline: true`) sem depender de conexão com o servidor ou com a internet.
-- **Download em Lote**: suporte a baixar capítulos individuais ou faixas inteiras de capítulos.
-- **Notificação em Tempo Real**: WebSocket integrado (`DOWNLOAD_COMPLETED` e `DOWNLOAD_PROGRESS`) com atualização visual automática.
+- **Download local**: capítulos podem ser baixados pelo cliente Android e armazenados em diretórios privados do aplicativo.
+- **Biblioteca de downloads**: lista capítulos baixados e calcula o espaço utilizado diretamente no aparelho.
+- A execução do download local usa o cliente HTTP e os cabeçalhos que a fonte disponibiliza quando ela estende `HttpSource`.
 
 ### 🔄 Sistema de Atualização Integrado (In-App Updater)
 - O aplicativo verifica automaticamente a existência de novas versões publicadas no **GitHub Releases**.
@@ -177,11 +185,7 @@ Para gerar APKs assinados para distribuição de produção:
 
 | Versão Android | API Level | Suporte |
 |----------------|-----------|---------|
-| Android 7.0+   | API 24+   | ✅ Suportado Oficialmente |
-| Android 8.0+   | API 26+   | ✅ Suportado |
-| Android 10+    | API 29+   | ✅ Suportado (Scoped Storage compatível) |
-| Android 12+    | API 31+   | ✅ Suportado (Material You & Splash nativo) |
-| Android 14+    | API 34+   | ✅ Suportado (Target SDK atual) |
+
 
 ---
 
