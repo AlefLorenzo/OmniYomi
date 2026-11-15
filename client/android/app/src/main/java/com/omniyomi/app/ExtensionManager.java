@@ -494,6 +494,91 @@ public class ExtensionManager {
         return downloaded > 0;
     }
 
+    /** Lista os capítulos armazenados fisicamente no aparelho. */
+    public List<Map<String, Object>> getDownloadedChapters() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return result;
+
+        for (File sourceDir : sourceDirs) {
+            File[] mangaDirs = sourceDir.listFiles(File::isDirectory);
+            if (mangaDirs == null) continue;
+            for (File mangaDir : mangaDirs) {
+                File[] chapterDirs = mangaDir.listFiles(File::isDirectory);
+                if (chapterDirs == null) continue;
+                for (File chapterDir : chapterDirs) {
+                    File[] pages = chapterDir.listFiles((dir, name) ->
+                        name.endsWith(".jpg") || name.endsWith(".jpeg")
+                        || name.endsWith(".png") || name.endsWith(".webp"));
+                    if (pages == null || pages.length == 0) continue;
+
+                    long bytes = 0;
+                    for (File page : pages) bytes += page.length();
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("sourceId", sourceDir.getName());
+                    item.put("mangaId", mangaDir.getName());
+                    item.put("chapterId", chapterDir.getName());
+                    item.put("pages", pages.length);
+                    item.put("totalBytes", bytes);
+                    result.add(item);
+                }
+            }
+        }
+        return result;
+    }
+
+    public long getDownloadsStorageBytes() {
+        return directorySize(downloadsDir);
+    }
+
+    private long directorySize(File directory) {
+        if (directory == null || !directory.exists()) return 0;
+        if (directory.isFile()) return directory.length();
+        long total = 0;
+        File[] children = directory.listFiles();
+        if (children != null) for (File child : children) total += directorySize(child);
+        return total;
+    }
+
+    public boolean deleteOfflineChapterById(String chapterId) {
+        if (chapterId == null || chapterId.trim().isEmpty()) return false;
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return false;
+        boolean deleted = false;
+        for (File sourceDir : sourceDirs) {
+            File[] mangaDirs = sourceDir.listFiles(File::isDirectory);
+            if (mangaDirs == null) continue;
+            for (File mangaDir : mangaDirs) {
+                File chapterDir = new File(mangaDir, sanitize(chapterId));
+                if (chapterDir.exists() && chapterDir.isDirectory()) {
+                    deleteRecursively(chapterDir);
+                    deleted = true;
+                }
+            }
+        }
+        return deleted;
+    }
+
+    public int deleteAllOfflineDownloads() {
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return 0;
+        int deleted = 0;
+        for (File sourceDir : sourceDirs) {
+            deleteRecursively(sourceDir);
+            deleted++;
+        }
+        return deleted;
+    }
+
+    private void deleteRecursively(File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) for (File child : children) deleteRecursively(child);
+        }
+        if (!file.delete()) Log.w(TAG, "Não foi possível excluir arquivo local: " + file.getAbsolutePath());
+    }
+
     public List<String> getOfflinePages(String sourceId, String mangaId, String chapterId) {
         File chDir = new File(downloadsDir,
             sanitize(sourceId) + "/" + sanitize(mangaId) + "/" + sanitize(chapterId));
