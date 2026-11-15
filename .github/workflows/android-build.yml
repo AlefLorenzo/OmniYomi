@@ -2,7 +2,7 @@ name: Android Build & Release
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, fix/standalone-runtime-audit-v1.1.8 ]
     tags:
       - 'v*'
   pull_request:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versão do APK (ex: 1.1.8)
+        description: 'Versão do APK (ex: 1.1.8)'
         required: true
         default: '1.1.8'
 
@@ -26,10 +26,10 @@ jobs:
       - name: Checkout repositório
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Setup Java 21
@@ -117,10 +117,11 @@ jobs:
       - name: Testes instrumentados em emulador Android (sem servidor externo)
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 30
           target: google_apis
           arch: x86_64
-          disable-animations: true
+          profile: Pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
           script: cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon
 
       - name: Compilar APK Release (somente se keystore configurada)
