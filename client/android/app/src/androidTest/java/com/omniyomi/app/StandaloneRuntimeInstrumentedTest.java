@@ -3,6 +3,13 @@ package com.omniyomi.app;
 import static org.junit.Assert.*;
 
 import android.content.Context;
+import java.lang.reflect.Method;
+import java.util.List;
+import kotlin.coroutines.Continuation;
+import eu.kanade.tachiyomi.source.Source;
+import eu.kanade.tachiyomi.source.CatalogueSource;
+import eu.kanade.tachiyomi.source.model.SManga;
+import eu.kanade.tachiyomi.source.model.SChapter;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -30,6 +37,20 @@ public class StandaloneRuntimeInstrumentedTest {
         assertNotNull(manager.getAllSources());
         assertTrue(manager.getDownloadsStorageBytes() >= 0L);
         assertNotNull(manager.getDownloadedChapters());
+    }
+
+    @Test
+    public void mihon16SuspendAbiIsPresent() throws Exception {
+        // These exact JVM descriptors are required by ext-lib 1.6 compiled Kotlin extensions.
+        CatalogueSource.class.getMethod("getPopularManga", int.class, Continuation.class);
+        CatalogueSource.class.getMethod("getLatestUpdates", int.class, Continuation.class);
+        CatalogueSource.class.getMethod("getSearchManga", int.class, String.class,
+            eu.kanade.tachiyomi.source.model.FilterList.class, Continuation.class);
+        Source.class.getMethod("getMangaUpdate", SManga.class, List.class,
+            boolean.class, boolean.class, Continuation.class);
+        Source.class.getMethod("getPageList", SChapter.class, Continuation.class);
+        SManga.class.getMethod("getMemo");
+        SChapter.class.getMethod("getMemo");
     }
 
     @Test
