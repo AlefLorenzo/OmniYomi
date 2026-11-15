@@ -778,119 +778,81 @@ export const api = {
     }
   },
   extractExtension: async (pkg: string, apkUrl: string, repoUrl?: string, extData?: any) => {
+    // Android: uma falha no runtime nativo NÃO pode virar uma instalação simulada.
+    // Só registramos fontes retornadas pelo ExtensionManager após carregamento real.
     if (await checkIsNative()) {
-      try {
-        const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
-        const installed = getLocalInstalledSources();
-        const cleanName = extData?.name || pkg.split('.').pop() || pkg;
-        const icon = extData?.iconUrl || `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`;
-        const lang = extData?.lang || (pkg.includes('.pt.') ? 'pt-br' : 'en');
+      const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
+      const nativeSources = Array.isArray(res?.sources) ? res.sources : [];
 
-        // Usar IDs numéricos reais das sources nativas
-        const nativeSources = (res.sources && res.sources.length > 0) ? res.sources : (extData?.sources || []);
-
-        for (const src of nativeSources) {
-          const realId = String(src.id || hashCode(pkg + (src.name || '')));
-          const existingIdx = installed.findIndex((s: any) => s.id === realId || s.pkg === pkg);
-          const newSource = {
-            id: realId,
-            nativeSourceId: realId,
-            name: src.name || cleanName,
-            version: extData?.version || '1.0.0',
-            lang: src.lang || lang,
-            iconUrl: icon,
-            baseUrl: src.baseUrl || src.homeUrl || '',
-            isEnabled: true,
-            isNsfw: Boolean(extData?.isNsfw),
-            hasPopular: true,
-            hasLatest: true,
-            supportsSearch: true,
-            pkg,
-            repoUrl: repoUrl || extData?.repoUrl || '',
-            isNative: true,
-          };
-          if (existingIdx >= 0) {
-            installed[existingIdx] = newSource;
-          } else {
-            installed.push(newSource);
-          }
-        }
-
-        // Se nenhuma source foi registrada (extData sem sources), registra pelo menos uma
-        if (nativeSources.length === 0) {
-          const fallbackId = String(hashCode(pkg));
-          const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
-          const newSource = {
-            id: fallbackId,
-            nativeSourceId: fallbackId,
-            name: cleanName,
-            version: extData?.version || '1.0.0',
-            lang,
-            iconUrl: icon,
-            baseUrl: extData?.sources?.[0]?.baseUrl || '',
-            isEnabled: true,
-            isNsfw: Boolean(extData?.isNsfw),
-            hasPopular: true,
-            hasLatest: true,
-            supportsSearch: true,
-            pkg,
-            repoUrl: repoUrl || extData?.repoUrl || '',
-            isNative: true,
-          };
-          if (existingIdx >= 0) {
-            installed[existingIdx] = newSource;
-          } else {
-            installed.push(newSource);
-          }
-        }
-
-        saveLocalInstalledSources(installed);
-        return { success: true, message: `Extensão ${cleanName} instalada e carregada nativamente!` };
-      } catch (err: any) {
-        console.error('Falha ao instalar extensão nativa:', err);
+      if (!res?.success) {
+        throw new Error(`O Android não confirmou a instalação de ${pkg}.`);
       }
-    }
+      if (nativeSources.length === 0) {
+        throw new Error(
+          `O APK ${pkg} foi baixado, mas o runtime nativo não retornou nenhuma fonte carregada. ` +
+          'A extensão não será marcada como instalada. Verifique compatibilidade do runtime e metadados do APK.'
+        );
+      }
 
-    try {
-      return await request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) });
-    } catch {
-      // Salva localmente a extensão instalada no dispositivo móvel
+      const invalidSources = nativeSources.filter((s: any) =>
+        s?.id === undefined || s?.id === null || !/^[0-9]+$/.test(String(s.id))
+      );
+      if (invalidSources.length > 0) {
+        throw new Error(
+          `O runtime retornou IDs de fonte inválidos para ${pkg}. ` +
+          'O OmniYomi exige os IDs reais retornados pela implementação da extensão.'
+        );
+      }
+
       const installed = getLocalInstalledSources();
-      const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
       const cleanName = extData?.name || pkg.split('.').pop() || pkg;
       const icon = extData?.iconUrl || `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`;
       const lang = extData?.lang || (pkg.includes('.pt.') ? 'pt-br' : 'en');
-      const sources = (extData?.sources || []).map((s: any) => ({
-        id: s.id || pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
-        name: s.name || cleanName,
-        baseUrl: s.baseUrl || apkUrl,
-        lang: s.lang || lang,
-      }));
 
-      const newSource = {
-        id: pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
-        name: cleanName,
-        version: extData?.version || '1.0.0',
-        lang,
-        iconUrl: icon,
-        baseUrl: extData?.sources?.[0]?.baseUrl || apkUrl,
-        isEnabled: true,
-        isNsfw: Boolean(extData?.isNsfw),
-        hasPopular: true,
-        hasLatest: true,
-        supportsSearch: true,
-        pkg,
-        repoUrl: repoUrl || extData?.repoUrl || '',
-        sources,
-      };
-
-      if (existingIdx >= 0) {
-        installed[existingIdx] = newSource;
-      } else {
-        installed.push(newSource);
+      for (const src of nativeSources) {
+        const realId = String(src.id);
+        const existingIdx = installed.findIndex((s: any) => s.id === realId);
+        const newSource = {
+          id: realId,
+          nativeSourceId: realId,
+          name: src.name || cleanName,
+          version: extData?.version || '1.0.0',
+          lang: src.lang || lang,
+          iconUrl: icon,
+          baseUrl: src.baseUrl || src.homeUrl || '',
+          isEnabled: true,
+          isNsfw: Boolean(extData?.isNsfw),
+          hasPopular: true,
+          hasLatest: true,
+          supportsSearch: true,
+          pkg,
+          repoUrl: repoUrl || extData?.repoUrl || '',
+          isNative: true,
+        };
+        if (existingIdx >= 0) installed[existingIdx] = newSource;
+        else installed.push(newSource);
       }
+
       saveLocalInstalledSources(installed);
-      return { success: true, message: `Extensão ${cleanName} instalada no dispositivo!` };
+      return {
+        success: true,
+        pkg,
+        sources: nativeSources,
+        message: `Extensão ${cleanName} instalada e carregada pelo runtime nativo.`,
+      };
+    }
+
+    // Navegador/desktop: mantém o fluxo de backend existente.
+    try {
+      return await request<any>('/extensions/extract', {
+        method: 'POST',
+        body: JSON.stringify({ pkg, apkUrl, repoUrl }),
+      });
+    } catch {
+      throw new Error(
+        'A instalação de APKs de extensões Tachiyomi exige o runtime Android. ' +
+        'Não é seguro registrar uma extensão apenas com os metadados do repositório.'
+      );
     }
   },
   uninstallExtracted: async (pkg: string) => {
