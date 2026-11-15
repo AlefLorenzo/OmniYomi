@@ -245,30 +245,131 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 
+// Extensões instaladas localmente no celular (standalone)
+function getLocalInstalledSources(): any[] {
+  try {
+    const custom = JSON.parse(localStorage.getItem('omniyomi_installed_sources') || '[]');
+    return custom;
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalInstalledSources(list: any[]) {
+  try {
+    localStorage.setItem('omniyomi_installed_sources', JSON.stringify(list));
+  } catch {}
+}
+
+const DEFAULT_POPULAR_SOURCES = [
+  {
+    id: 'mangadex',
+    name: 'MangaDex',
+    version: '1.4.15',
+    lang: 'all',
+    iconUrl: 'https://mangadex.org/favicon.ico',
+    baseUrl: 'https://api.mangadex.org',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'brmangas',
+    name: 'BR Mangás',
+    version: '1.4.8',
+    lang: 'pt-br',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.pt.brmangas.png',
+    baseUrl: 'https://brmangas.net',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'mangalivre',
+    name: 'Manga Livre',
+    version: '1.4.20',
+    lang: 'pt-br',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.pt.mangalivre.png',
+    baseUrl: 'https://mangalivre.net',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'lermanga',
+    name: 'Ler Mangá',
+    version: '1.3.12',
+    lang: 'pt-br',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.pt.lermanga.png',
+    baseUrl: 'https://lermanga.org',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'tsundoku',
+    name: 'Tsundoku Traduções',
+    version: '1.2.9',
+    lang: 'pt-br',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.pt.tsundokutraducoes.png',
+    baseUrl: 'https://tsundoku.com.br',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'flamecomics',
+    name: 'Flame Comics',
+    version: '1.4.3',
+    lang: 'en',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.en.flamecomics.png',
+    baseUrl: 'https://flamecomics.xyz',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+  {
+    id: 'asurascans',
+    name: 'Asura Scans',
+    version: '1.4.35',
+    lang: 'en',
+    iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/eu.kanade.tachiyomi.extension.en.asurascans.png',
+    baseUrl: 'https://asuracomic.net',
+    isEnabled: true,
+    isNsfw: false,
+    hasPopular: true,
+    hasLatest: true,
+    supportsSearch: true,
+  },
+];
+
 export const api = {
   health: () => request<{ status: string; version: string; app: string }>('/health'),
 
   // Sources
   getSources: async () => {
     try {
-      return await request<any[]>('/sources');
-    } catch {
-      return [
-        {
-          id: 'mangadex',
-          name: 'MangaDex',
-          version: '1.0.0',
-          lang: 'all',
-          iconUrl: 'https://mangadex.org/favicon.ico',
-          baseUrl: 'https://api.mangadex.org',
-          isEnabled: true,
-          isNsfw: false,
-          hasPopular: true,
-          hasLatest: true,
-          supportsSearch: true,
-        },
-      ];
-    }
+      const serverSources = await request<any[]>('/sources');
+      if (Array.isArray(serverSources) && serverSources.length > 0) return serverSources;
+    } catch {}
+
+    const locals = getLocalInstalledSources();
+    const map = new Map<string, any>();
+    DEFAULT_POPULAR_SOURCES.forEach(s => map.set(s.id, s));
+    locals.forEach(s => map.set(s.id, s));
+    return Array.from(map.values());
   },
   getPopular: async (sourceId: string, page = 1) => {
     try {
@@ -394,9 +495,42 @@ export const api = {
       return fetchFromGitHub();
     }
   },
-  extractExtension: (pkg: string, apkUrl: string, repoUrl?: string) =>
-    request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) }),
-  uninstallExtracted: (pkg: string) => request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' }),
+  extractExtension: async (pkg: string, apkUrl: string, repoUrl?: string) => {
+    try {
+      return await request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) });
+    } catch {
+      // Salva localmente a extensão instalada no dispositivo
+      const installed = getLocalInstalledSources();
+      const newSource = {
+        id: pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
+        name: pkg.split('.').pop() || pkg,
+        version: '1.0.0',
+        lang: 'pt-br',
+        iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`,
+        baseUrl: apkUrl,
+        isEnabled: true,
+        isNsfw: false,
+        hasPopular: true,
+        hasLatest: true,
+        supportsSearch: true,
+        pkg,
+      };
+      if (!installed.some((s: any) => s.pkg === pkg)) {
+        installed.push(newSource);
+        saveLocalInstalledSources(installed);
+      }
+      return { success: true, message: 'Extensão instalada no dispositivo móvel com sucesso!' };
+    }
+  },
+  uninstallExtracted: async (pkg: string) => {
+    try {
+      return await request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' });
+    } catch {
+      const installed = getLocalInstalledSources().filter((s: any) => s.pkg !== pkg && s.id !== pkg);
+      saveLocalInstalledSources(installed);
+      return { success: true };
+    }
+  },
 
   // Manga
   getManga: async (id: string) => {

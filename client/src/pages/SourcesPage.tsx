@@ -202,20 +202,20 @@ export function SourcesPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-fit">
+      <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-full overflow-x-auto scrollbar-none">
         {(['installed', 'store', 'repos'] as Tab[]).map(tab => {
           const labels = {
-            installed: `Fontes Ativas (${sources.length})`,
-            store: `Loja de Extensões (${storeTotal > 0 ? storeTotal : '1.600+'})`,
-            repos: `Repositórios (${repos.length > 0 ? repos.length : '2'})`,
+            installed: `Fontes (${sources.length})`,
+            store: `Loja Keiyoushi (${storeTotal > 0 ? storeTotal : '1.600+'})`,
+            repos: `Repositórios (${repos.length > 0 ? repos.length : '1'})`,
           };
           return (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
-                'text-sm px-4 py-1.5 rounded transition-colors font-medium cursor-pointer',
-                activeTab === tab ? 'bg-purple-600 text-white' : 'text-gray-500 hover:text-gray-200'
+                'flex-1 sm:flex-initial text-xs sm:text-sm px-3 py-1.5 rounded transition-all font-medium cursor-pointer whitespace-nowrap text-center',
+                activeTab === tab ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'
               )}
             >
               {labels[tab]}

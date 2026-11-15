@@ -157,12 +157,13 @@ export function CatalogPage() {
       {activeTab === 'source' && (
         <div className="space-y-2">
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Selecione a Extensão ({sources.length} instaladas)</span>
-            {currentSourceInfo && (
-              <span className="text-purple-400 normal-case font-normal">
-                Ativa: <strong>{currentSourceInfo.name}</strong>
-              </span>
-            )}
+            <span>Selecione a Extensão ({sources.length} ativas)</span>
+            <button
+              onClick={() => navigate('/sources')}
+              className="text-xs text-purple-400 hover:text-purple-300 normal-case font-medium flex items-center gap-1 bg-purple-900/30 px-2 py-0.5 rounded border border-purple-700/40"
+            >
+              <Sparkles size={11} /> + Extensões & Loja
+            </button>
           </label>
 
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">

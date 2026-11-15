@@ -215,6 +215,16 @@ function buildHtml(apks, ips) {
       ${ipLinks || '<span style="color:#64748b">Nenhuma rede encontrada</span>'}
     </div>
 
+    <div class="section" style="border: 1px solid #7c3aed60; background: #1a162b;">
+      <h2 style="color: #c084fc;">⚡ Usar no Celular sem Reinstalar</h2>
+      <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 12px;">
+        Acesse o OmniYomi com todas as fontes, extensões e correções mais recentes direto pelo navegador do celular:
+      </p>
+      <a class="btn" href="/app" style="background: linear-gradient(135deg, #9333ea, #6366f1); width: 100%; justify-content: center; padding: 12px;">
+        🚀 Abrir OmniYomi Atualizado no Navegador
+      </a>
+    </div>
+
     <div class="section">
       <h2>Download do APK</h2>
       ${apkItems}
@@ -293,6 +303,42 @@ function startServer() {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
+    }
+
+    // Servir aplicativo web SPA do cliente em /app (para usar direto sem precisar reinstalar APK)
+    if (url.pathname.startsWith('/app') || url.pathname.startsWith('/assets/')) {
+      const CLIENT_DIST = path.join(ROOT, 'client', 'dist');
+      let reqPath = url.pathname;
+      if (reqPath.startsWith('/app')) {
+        reqPath = reqPath.replace(/^\/app/, '');
+      }
+      if (!reqPath || reqPath === '/') reqPath = '/index.html';
+
+      let filePath = path.join(CLIENT_DIST, reqPath);
+      // Se não achar o arquivo específico, serve index.html (SPA routing)
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(CLIENT_DIST, 'index.html');
+      }
+
+      if (fs.existsSync(filePath)) {
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes = {
+          '.html': 'text/html; charset=utf-8',
+          '.js': 'application/javascript; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.json': 'application/json',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.svg': 'image/svg+xml',
+          '.ico': 'image/x-icon',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        fs.createReadStream(filePath).pipe(res);
+        return;
+      }
     }
 
     if (url.pathname.startsWith('/download/')) {
