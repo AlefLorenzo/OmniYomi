@@ -998,6 +998,8 @@ export const api = {
           nativeSourceId: realId,
           name: src.name || cleanName,
           version: extData?.version || '1.0.0',
+          versionCode: String(extData?.versionCode || ''),
+          extensionLib: String(extData?.extensionLib || ''),
           lang: src.lang || lang,
           iconUrl: icon,
           baseUrl: src.baseUrl || src.homeUrl || '',
@@ -1455,7 +1457,7 @@ export const api = {
           }
         }
       } catch (error: any) {
-        errors.push?.(error);
+        console.warn(`[Atualização de extensões] Falha ao consultar ${repo.name}:`, error?.message || error);
       }
     }));
 
