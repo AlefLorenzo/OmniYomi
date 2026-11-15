@@ -1170,10 +1170,12 @@ export const api = {
   refreshManga: async (mangaId: string, sourceId?: string) => {
     if (await checkIsNative()) {
       if (!sourceId) throw new Error('A fonte desta obra não está identificada na biblioteca.');
-      const result = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
-      const chapters = result?.chapters || [];
       const library = getLocalLibrary();
       const index = library.findIndex((item: any) => String(item.id) === String(mangaId));
+      const savedManga = index >= 0 ? library[index] : null;
+      const sourceMangaUrl = savedManga?.sourceMangaId || savedManga?.url || mangaId;
+      const result = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: sourceMangaUrl });
+      const chapters = result?.chapters || [];
       if (index >= 0) {
         const existing = new Map<string, any>(
           (library[index].chapters || []).map((chapter: any) => [
@@ -1607,7 +1609,8 @@ export const api = {
           const fetched = await getMangaDexChapters(manga.id);
           newChapters = fetched || [];
         } else if (isNative) {
-          const res = await TachiyomiNative.getChapterList({ sourceId: srcId, mangaUrl: manga.id });
+          const sourceMangaUrl = manga.sourceMangaId || manga.url || manga.id;
+          const res = await TachiyomiNative.getChapterList({ sourceId: srcId, mangaUrl: sourceMangaUrl });
           newChapters = res.chapters || [];
         } else {
           // Sem servidor e sem nativo: pula
