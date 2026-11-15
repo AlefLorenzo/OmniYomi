@@ -62,28 +62,28 @@ public abstract class HttpSource implements CatalogueSource {
     public OkHttpClient getClient() { return getNetwork().getClient(); }
     public FilterList getFilterList() { return new FilterList(); }
 
-    public Request popularMangaRequest(int page) { throw new UnsupportedOperationException("popularMangaRequest"); }
-    public MangasPage popularMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("popularMangaParse"); }
-    public Request searchMangaRequest(int page, String query, FilterList filters) { throw new UnsupportedOperationException("searchMangaRequest"); }
-    public MangasPage searchMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("searchMangaParse"); }
-    public Request latestUpdatesRequest(int page) { throw new UnsupportedOperationException("latestUpdatesRequest"); }
-    public MangasPage latestUpdatesParse(Response response) throws Exception { throw new UnsupportedOperationException("latestUpdatesParse"); }
+    protected Request popularMangaRequest(int page) { throw new UnsupportedOperationException("popularMangaRequest"); }
+    protected MangasPage popularMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("popularMangaParse"); }
+    protected Request searchMangaRequest(int page, String query, FilterList filters) { throw new UnsupportedOperationException("searchMangaRequest"); }
+    protected MangasPage searchMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("searchMangaParse"); }
+    protected Request latestUpdatesRequest(int page) { throw new UnsupportedOperationException("latestUpdatesRequest"); }
+    protected MangasPage latestUpdatesParse(Response response) throws Exception { throw new UnsupportedOperationException("latestUpdatesParse"); }
     public Request mangaDetailsRequest(SManga manga) {
         return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + manga.getUrl(), getHeaders());
     }
-    public SManga mangaDetailsParse(Response response) throws Exception { throw new UnsupportedOperationException("mangaDetailsParse"); }
+    protected SManga mangaDetailsParse(Response response) throws Exception { throw new UnsupportedOperationException("mangaDetailsParse"); }
     public Request chapterListRequest(SManga manga) {
         return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + manga.getUrl(), getHeaders());
     }
-    public List<SChapter> chapterListParse(Response response) throws Exception { throw new UnsupportedOperationException("chapterListParse"); }
+    protected List<SChapter> chapterListParse(Response response) throws Exception { throw new UnsupportedOperationException("chapterListParse"); }
     public Request pageListRequest(SChapter chapter) {
         return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + chapter.getUrl(), getHeaders());
     }
-    public List<Page> pageListParse(Response response) throws Exception { throw new UnsupportedOperationException("pageListParse"); }
-    public Request imageUrlRequest(Page page) {
+    protected List<Page> pageListParse(Response response) throws Exception { throw new UnsupportedOperationException("pageListParse"); }
+    protected Request imageUrlRequest(Page page) {
         return eu.kanade.tachiyomi.network.RequestsKt.GET(page.getUrl(), getHeaders());
     }
-    public String imageUrlParse(Response response) throws Exception { throw new UnsupportedOperationException("imageUrlParse"); }
+    protected String imageUrlParse(Response response) throws Exception { throw new UnsupportedOperationException("imageUrlParse"); }
     protected Request imageRequest(Page page) {
         if (page.getImageUrl() == null) throw new IllegalStateException("Page imageUrl is null");
         return eu.kanade.tachiyomi.network.RequestsKt.GET(page.getImageUrl(), getHeaders());
