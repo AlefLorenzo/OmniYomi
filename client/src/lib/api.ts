@@ -481,13 +481,25 @@ async function decompressExtensionIndex(bytes: Uint8Array): Promise<Uint8Array> 
 
 async function parseExtensionRepositoryResponse(url: string, response: Response): Promise<any[]> {
   if (url.toLowerCase().endsWith('.pb')) {
-    const downloaded = new Uint8Array(await response.arrayBuffer());
-    const bytes = await decompressExtensionIndex(downloaded);
-    const parsed = parseExtensionIndexProto(bytes);
-    if (parsed.extensions.length > 0) return parsed.extensions;
-    throw new Error(
-      'O índice Protobuf foi lido, mas não contém extensões no campo esperado (Index.extensions).'
-    );
+    try {
+      const downloaded = new Uint8Array(await response.arrayBuffer());
+      const bytes = await decompressExtensionIndex(downloaded);
+      const parsed = parseExtensionIndexProto(bytes);
+      if (parsed.extensions.length > 0) return parsed.extensions;
+      throw new Error('Index.extensions vazio ou ausente.');
+    } catch (protobufError: any) {
+      // Fallback oficial do catálogo legível do mesmo repositório. Isso também
+      // cobre WebViews antigas sem DecompressionStream, sem marcar o .pb como JSON.
+      const jsonUrl = url.replace(/index\.pb$/i, 'index.json');
+      if (jsonUrl === url) throw protobufError;
+      const jsonResponse = await fetch(jsonUrl, { cache: 'no-cache' });
+      if (!jsonResponse.ok) {
+        throw new Error(
+          `Falha ao ler index.pb (${protobufError?.message || protobufError}) e index.json (HTTP ${jsonResponse.status}).`
+        );
+      }
+      return parseExtensionRepositoryResponse(jsonUrl, jsonResponse);
+    }
   }
 
   const data = await response.json();
