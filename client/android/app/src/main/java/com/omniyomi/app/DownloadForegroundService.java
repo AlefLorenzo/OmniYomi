@@ -17,8 +17,8 @@ public class DownloadForegroundService extends Service {
 
     private static final String CHANNEL_ID = "OmniYomi_Download_Channel";
     private static final int NOTIFICATION_ID = 1001;
-    // FOREGROUND_SERVICE_TYPE_DATA_SYNC was added in API 29 (Android 10)
-    private static final int FOREGROUND_SERVICE_TYPE_DATA_SYNC = 0x00000004;
+    // FOREGROUND_SERVICE_TYPE_DATA_SYNC value (added in API 29)
+    private static final int FOREGROUND_SERVICE_TYPE_DATA_SYNC = 4;
 
     @Override
     public void onCreate() {
@@ -34,11 +34,11 @@ public class DownloadForegroundService extends Service {
         Notification notification = buildNotification(title, progress);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Use reflection or constant for FOREGROUND_SERVICE_TYPE_DATA_SYNC (API 29+)
+            // API 29+ (Android 10) supports foreground service types
             try {
                 startForeground(NOTIFICATION_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-            } catch (NoSuchFieldError e) {
-                // Fallback for older API levels
+            } catch (NoSuchMethodError | NoSuchFieldError e) {
+                // Fallback if constant not available
                 startForeground(NOTIFICATION_ID, notification);
             }
         } else {
@@ -87,8 +87,8 @@ public class DownloadForegroundService extends Service {
             .setContentIntent(pendingIntent)
             .setAutoCancel(completed)
             .setOngoing(!completed)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(Notification.CATEGORY_DOWNLOAD); // Use Notification.CATEGORY_DOWNLOAD, not NotificationCompat
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+            // Category removed for compatibility - Notification.CATEGORY_DOWNLOAD requires API 21+
 
         if (completed) {
             builder.setProgress(0, 0, false);
