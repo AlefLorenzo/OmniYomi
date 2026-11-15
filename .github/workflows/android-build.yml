@@ -122,7 +122,6 @@ jobs:
           arch: x86_64
           profile: Pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
-          disable-animations: true
           script: cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon
 
       - name: Compilar APK Release (somente se keystore configurada)
