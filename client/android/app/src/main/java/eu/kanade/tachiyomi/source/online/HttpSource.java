@@ -83,6 +83,11 @@ public abstract class HttpSource implements CatalogueSource {
     protected Request imageUrlRequest(Page page) {
         return eu.kanade.tachiyomi.network.RequestsKt.GET(page.getUrl(), getHeaders());
     }
+
+    /** Public host bridge for the offline downloader; keeps extension overrides protected. */
+    public final Request getImageUrlRequestForDownload(Page page) {
+        return imageUrlRequest(page);
+    }
     protected String imageUrlParse(Response response) throws Exception { throw new UnsupportedOperationException("imageUrlParse"); }
     protected Request imageRequest(Page page) {
         if (page.getImageUrl() == null) throw new IllegalStateException("Page imageUrl is null");
