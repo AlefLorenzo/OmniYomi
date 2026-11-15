@@ -479,11 +479,31 @@ function getLocalRepositories(): any[] {
       saveLocalRepositories(DEFAULT_REPOSITORIES);
       return DEFAULT_REPOSITORIES;
     }
+
     const parsed = JSON.parse(stored);
-    const map = new Map<string, any>();
-    DEFAULT_REPOSITORIES.forEach(r => map.set(r.url, r));
-    parsed.forEach((r: any) => map.set(r.url, r));
-    return Array.from(map.values());
+    const savedById = new Map<string, any>(
+      (Array.isArray(parsed) ? parsed : []).map((repo: any) => [String(repo.id || repo.url), repo])
+    );
+    const defaults = new Map<string, any>();
+
+    // Migra URLs antigas pelo ID estável do repositório. Isso troca automaticamente
+    // o Keiyoushi index.json legado pelo index.pb sem perder enabled/lastSynced.
+    for (const repo of DEFAULT_REPOSITORIES) {
+      const saved = savedById.get(String(repo.id));
+      defaults.set(String(repo.id), saved
+        ? { ...repo, ...saved, url: repo.url, originalUrl: repo.originalUrl }
+        : repo);
+      savedById.delete(String(repo.id));
+    }
+
+    // Preserva repositórios personalizados que não fazem parte dos padrões.
+    for (const [id, repo] of savedById.entries()) {
+      if (repo?.url) defaults.set(id, repo);
+    }
+
+    const result = Array.from(defaults.values());
+    saveLocalRepositories(result);
+    return result;
   } catch {
     return DEFAULT_REPOSITORIES;
   }
@@ -669,9 +689,9 @@ export const api = {
     // Android nativo: usa a extensão instalada
     if (await checkIsNative()) {
       try {
-        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-        if (nat?.manga?.length > 0) return nat;
-        throw new Error(`Extensão "${sourceId}" não retornou resultados. Verifique se está instalada corretamente.`);
+        // Uma lista vazia é uma resposta válida da fonte (por exemplo, página sem obras).
+        // A ausência da fonte é sinalizada pelo plugin nativo com uma exceção específica.
+        return await TachiyomiNative.getPopularManga({ sourceId, page });
       } catch (e: any) {
         throw new Error(`[${sourceId}] Falha ao buscar populares: ${e.message}`);
       }
