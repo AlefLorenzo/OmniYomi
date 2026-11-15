@@ -12,9 +12,23 @@ interface CoverCardProps {
 }
 
 export function CoverCard({ title, coverUrl, badges, overlay, onClick, className }: CoverCardProps) {
-  const proxiedUrl = coverUrl && coverUrl.startsWith('http') && !coverUrl.startsWith('/api/proxy')
-    ? resolveApiUrl(`/api/proxy/image?url=${encodeURIComponent(coverUrl)}`)
-    : resolveApiUrl(coverUrl || '');
+  // CDNs públicas que carregam diretamente sem precisar de proxy local
+  const isDirectCdn =
+    coverUrl &&
+    (coverUrl.includes('mangadex.org') ||
+     coverUrl.includes('githubusercontent.com') ||
+     coverUrl.includes('jsdelivr.net') ||
+     coverUrl.includes('placehold.co') ||
+     coverUrl.startsWith('data:') ||
+     coverUrl.startsWith('blob:'));
+
+  const proxiedUrl = !coverUrl
+    ? ''
+    : isDirectCdn
+      ? coverUrl
+      : coverUrl.startsWith('http') && !coverUrl.startsWith('/api/proxy')
+        ? resolveApiUrl(`/api/proxy/image?url=${encodeURIComponent(coverUrl)}`)
+        : resolveApiUrl(coverUrl);
 
   return (
     <div

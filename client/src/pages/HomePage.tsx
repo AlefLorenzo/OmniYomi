@@ -74,22 +74,22 @@ export function HomePage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-4 w-full">
         {[
-          { icon: Library, label: 'Na biblioteca', value: stats.library, color: 'text-purple-400', bg: 'bg-purple-900/20', path: '/library' },
+          { icon: Library, label: 'Biblioteca', value: stats.library, color: 'text-purple-400', bg: 'bg-purple-900/20', path: '/library' },
           { icon: Download, label: 'Downloads', value: stats.downloads, color: 'text-blue-400', bg: 'bg-blue-900/20', path: '/downloads' },
           { icon: Clock, label: 'Histórico', value: stats.history, color: 'text-green-400', bg: 'bg-green-900/20', path: '/history' },
         ].map(s => (
           <div
             key={s.label}
-            className={`${s.bg} rounded-xl p-4 border border-[#2a3040] cursor-pointer hover:border-purple-500/30 transition-colors`}
+            className={`${s.bg} rounded-xl p-2.5 sm:p-4 border border-[#2a3040] cursor-pointer hover:border-purple-500/30 transition-colors flex items-center justify-center sm:justify-start`}
             onClick={() => navigate(s.path)}
           >
-            <div className="flex items-center gap-3">
-              <s.icon size={22} className={s.color} />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <s.icon size={20} className={`${s.color} shrink-0`} />
               <div>
-                <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-                <p className="text-xs text-gray-500">{s.label}</p>
+                <p className={`text-base sm:text-xl font-bold ${s.color} leading-none`}>{s.value}</p>
+                <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5 truncate">{s.label}</p>
               </div>
             </div>
           </div>

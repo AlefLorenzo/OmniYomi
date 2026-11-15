@@ -3,17 +3,22 @@ export function getApiBaseUrl(): string {
   const stored = localStorage.getItem('omniyomi_server_url');
   if (stored) return stored.replace(/\/$/, '');
 
+  // Se estiver rodando no navegador acessando o IP do PC (ex: http://192.168.0.111:8888/app/)
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    if (window.location.port === '8888' || window.location.port === '4567') {
+      return window.location.origin;
+    }
+  }
+
   // Detect Capacitor or Android WebView
   const isCapacitor =
     window.location.protocol === 'capacitor:' ||
     Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
-    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173') ||
-    (window.location.protocol === 'https:' && window.location.hostname === 'localhost');
+    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173');
 
   if (isCapacitor) {
-    // No Capacitor/Android, retorna vazio por padrão — o usuário configura o IP manualmente
-    // A loja de extensões usa GitHub diretamente, sem precisar do servidor
-    return '';
+    // Por padrão conecta no IP da máquina na porta 8888 (com proxy HTTP e WebSocket)
+    return 'http://192.168.0.111:8888';
   }
 
   return '';

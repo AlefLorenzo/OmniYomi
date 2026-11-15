@@ -11,8 +11,8 @@ export function Layout() {
         {/* Sidebar - only desktop */}
         <Sidebar />
         {/* Main content */}
-        <main className="flex-1 md:ml-16 xl:ml-56 min-h-screen pb-16 md:pb-0">
-          <div className="max-w-[1600px] mx-auto p-3 sm:p-4 md:p-6">
+        <main className="flex-1 min-w-0 w-full md:ml-16 xl:ml-56 min-h-screen pb-20 md:pb-6 overflow-x-hidden">
+          <div className="w-full max-w-[1600px] mx-auto px-3 py-4 sm:px-4 md:px-6">
             <Outlet />
           </div>
         </main>

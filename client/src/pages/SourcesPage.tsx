@@ -232,35 +232,43 @@ export function SourcesPage() {
           ) : sources.length === 0 ? (
             <Empty icon="📦" title="Nenhuma fonte instalada" />
           ) : sources.map(src => (
-            <div key={src.id} className={cn('flex items-center gap-3 p-4 rounded-xl border transition-colors', src.isEnabled ? 'bg-[#1a1e29] border-[#2a3040]' : 'bg-[#131720] border-[#1a1f2e] opacity-60')}>
-              <img
-                src={src.iconUrl}
-                alt={src.name}
-                className="w-10 h-10 rounded-lg flex-shrink-0 object-contain bg-[#121620]"
-                onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/40x40/1a1e29/8b5cf6?text=?'; }}
-              />
+            <div
+              key={src.id}
+              className={cn(
+                'flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-xl border transition-colors',
+                src.isEnabled ? 'bg-[#1a1e29] border-[#2a3040]' : 'bg-[#131720] border-[#1a1f2e] opacity-60'
+              )}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={src.iconUrl}
+                  alt={src.name}
+                  className="w-10 h-10 rounded-lg flex-shrink-0 object-contain bg-[#121620]"
+                  onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/40x40/1a1e29/8b5cf6?text=?'; }}
+                />
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-200">{src.name}</span>
-                  <span className="text-xs text-gray-600">v{src.version}</span>
-                  <span className="text-xs bg-[#2a3040] px-1.5 py-0.5 rounded text-gray-400 uppercase">{src.lang}</span>
-                  {src.isNsfw && <span className="text-xs bg-red-900/50 px-1.5 py-0.5 rounded text-red-400">NSFW</span>}
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  {src.health?.status === 'OK' ? (
-                    <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle size={11} /> Online</span>
-                  ) : src.health?.status === 'ERROR' ? (
-                    <span className="flex items-center gap-1 text-xs text-red-400"><XCircle size={11} /> Falha</span>
-                  ) : null}
-                  <span className="text-xs text-gray-600 truncate">{src.baseUrl}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <span className="font-semibold text-gray-200 text-sm truncate max-w-[200px]">{src.name}</span>
+                    <span className="text-[11px] text-gray-400">v{src.version}</span>
+                    <span className="text-[10px] bg-[#2a3040] px-1.5 py-0.2 rounded text-gray-400 uppercase font-semibold">{src.lang}</span>
+                    {src.isNsfw && <span className="text-[10px] bg-red-900/50 px-1.5 py-0.2 rounded text-red-400 font-semibold">18+</span>}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {src.health?.status === 'OK' ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-400"><CheckCircle size={11} /> Online</span>
+                    ) : src.health?.status === 'ERROR' ? (
+                      <span className="flex items-center gap-1 text-[11px] text-red-400"><XCircle size={11} /> Falha</span>
+                    ) : null}
+                    <span className="text-[11px] text-gray-400 truncate max-w-[220px]">{src.baseUrl || 'Extensão DEX'}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2 pt-1 sm:pt-0 border-t border-[#242b3b] sm:border-0">
                 <button
                   onClick={() => navigate(`/catalog?source=${encodeURIComponent(src.id)}`)}
-                  className="flex items-center gap-1 text-xs bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white transition-all px-2.5 py-1.5 rounded cursor-pointer font-medium"
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white transition-all px-3 py-1.5 rounded-lg cursor-pointer font-medium"
                   title="Explorar obras desta fonte"
                 >
                   <BookOpen size={13} />
@@ -270,7 +278,7 @@ export function SourcesPage() {
                 <button
                   onClick={() => handleHealthCheck(src.id)}
                   disabled={healthChecking.has(src.id)}
-                  className="text-xs text-gray-500 hover:text-purple-400 transition-colors p-1.5 rounded hover:bg-purple-900/20 disabled:opacity-50"
+                  className="text-xs text-gray-400 hover:text-purple-400 transition-colors p-1.5 rounded-lg hover:bg-purple-900/20 disabled:opacity-50"
                   title="Testar conexão"
                 >
                   <RefreshCw size={14} className={healthChecking.has(src.id) ? 'animate-spin' : ''} />
@@ -278,10 +286,10 @@ export function SourcesPage() {
 
                 <button
                   onClick={() => handleToggle(src.id, src.isEnabled)}
-                  className={cn('transition-colors cursor-pointer', src.isEnabled ? 'text-green-400 hover:text-green-300' : 'text-gray-600 hover:text-gray-400')}
+                  className={cn('transition-colors cursor-pointer p-1', src.isEnabled ? 'text-green-400 hover:text-green-300' : 'text-gray-400 hover:text-gray-400')}
                   title={src.isEnabled ? 'Desativar' : 'Ativar'}
                 >
-                  {src.isEnabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                  {src.isEnabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
                 </button>
               </div>
             </div>

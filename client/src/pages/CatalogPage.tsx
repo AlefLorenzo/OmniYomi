@@ -77,11 +77,14 @@ export function CatalogPage() {
         result = await api.getPopular(selectedSource, p);
       }
 
-      // Garantir que todas as obras retornadas pertençam estritamente à extensão selecionada
-      const validatedManga = (result.manga || []).filter((m: any) => m.sourceId === selectedSource);
-      setManga(validatedManga);
+      // Mapeia e garante o vínculo da obra à extensão selecionada
+      const mangas = (result.manga || []).map((m: any) => ({
+        ...m,
+        sourceId: m.sourceId || selectedSource,
+      }));
+      setManga(mangas);
       setHasNextPage(result.hasNextPage || false);
-      setTotal(result.total || validatedManga.length);
+      setTotal(result.total || mangas.length);
       setPage(p);
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar catálogo da extensão');
@@ -122,19 +125,19 @@ export function CatalogPage() {
   return (
     <div className="space-y-6">
       {/* Header & Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Catálogo de Obras</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Catálogo de Obras</h1>
+          <p className="text-xs sm:text-sm text-gray-400 mt-0.5">
             Obras exclusivas por extensão • Títulos em PT-BR / Inglês • Capas verificadas
           </p>
         </div>
 
         {/* Global vs Per-Source Toggle */}
-        <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-fit">
+        <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-full sm:w-fit">
           <button
             onClick={() => setActiveTab('source')}
-            className={`text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center gap-1.5 ${
+            className={`flex-1 sm:flex-initial text-xs sm:text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'source' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
@@ -143,7 +146,7 @@ export function CatalogPage() {
           </button>
           <button
             onClick={() => setActiveTab('global')}
-            className={`text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center gap-1.5 ${
+            className={`flex-1 sm:flex-initial text-xs sm:text-sm px-3.5 py-1.5 rounded transition-all font-medium cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'global' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
@@ -155,18 +158,18 @@ export function CatalogPage() {
 
       {/* EXTENSION SELECTOR SHELF (Carrossel / Grid de Extensões Instaladas) */}
       {activeTab === 'source' && (
-        <div className="space-y-2">
+        <div className="space-y-2 w-full min-w-0">
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
             <span>Selecione a Extensão ({sources.length} ativas)</span>
             <button
               onClick={() => navigate('/sources')}
-              className="text-xs text-purple-400 hover:text-purple-300 normal-case font-medium flex items-center gap-1 bg-purple-900/30 px-2 py-0.5 rounded border border-purple-700/40"
+              className="text-xs text-purple-400 hover:text-purple-300 normal-case font-medium flex items-center gap-1 bg-purple-900/30 px-2.5 py-1 rounded-lg border border-purple-700/40"
             >
               <Sparkles size={11} /> + Extensões & Loja
             </button>
           </label>
 
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin max-w-full">
             {sources.map(src => {
               const isSelected = src.id === selectedSource;
               return (
@@ -243,9 +246,9 @@ export function CatalogPage() {
       )}
 
       {/* Controls: Search and Mode tabs */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col sm:flex-row gap-2.5 w-full">
         {/* Search */}
-        <div className="flex-1">
+        <div className="flex-1 w-full">
           <Input
             value={searchQuery}
             onChange={e => handleSearchChange(e.target.value)}
@@ -256,7 +259,7 @@ export function CatalogPage() {
 
         {/* Mode tabs (only in per-source tab) */}
         {activeTab === 'source' && (
-          <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1">
+          <div className="flex gap-1 bg-[#1a1e29] border border-[#2a3040] rounded-lg p-1 w-full sm:w-fit">
             {([
               { mode: 'popular' as ViewMode, icon: TrendingUp, label: 'Populares' },
               { mode: 'latest' as ViewMode, icon: Clock, label: 'Recentes' },
@@ -264,14 +267,14 @@ export function CatalogPage() {
               <button
                 key={mode}
                 onClick={() => { setViewMode(mode); setDebouncedQ(''); setSearchQuery(''); }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
                   viewMode === mode && !debouncedQ
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
                 <Icon size={13} />
-                <span className="hidden sm:inline">{label}</span>
+                <span>{label}</span>
               </button>
             ))}
           </div>
