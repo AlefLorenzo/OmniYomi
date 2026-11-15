@@ -9,18 +9,7 @@ import okhttp3.RequestBody;
 public class NetworkHelper {
     private static OkHttpClient client;
 
-    public synchronized OkHttpClient getClient() {
-        if (client == null) {
-            client = new OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .build();
-        }
-        return getSharedClient();
-    }
+    public synchronized OkHttpClient getClient() { return getSharedClient(); }
 
     public static synchronized OkHttpClient getDefaultClient() { return getSharedClient(); }
 
