@@ -1,13 +1,70 @@
 import { TachiyomiNative, checkIsNative, getConfigurableSources, sourceNeedsConfiguration, clearConfigurableSourcesCache, type ConfigurableSourceInfo } from './nativeBridge';
 import type { NativeSourceResponse } from './nativeBridge';
 
-// Helper para lidar com respostas nativas de forma consistente
-async function handleNativeResponse<T>(promise: Promise<NativeSourceResponse>): Promise<T> {
-  const res = await promise;
-  if (res?.error) {
-    throw new Error(res.message || 'Erro na operação nativa');
-  }
-  return res as T;
+// Tipos específicos para cada resposta nativa
+interface NativePopularResponse { manga: any[]; hasNextPage: boolean; }
+interface NativeMangaResponse { manga: any[]; hasNextPage: boolean; }
+interface NativeSearchResponse { manga: any[]; hasNextPage: boolean; }
+interface NativeMangaDetailsResponse { title: string; coverUrl: string; author: string; artist: string; description: string; status: string; id: string; sourceId: string; sourceMangaId: string; inLibrary: boolean; isFavorite: boolean; }
+interface NativeChaptersResponse { chapters: any[]; }
+interface NativePagesResponse { pages: any[]; totalPages: number; isOffline?: boolean; }
+interface NativeDownloadResponse { success: boolean; }
+interface NativeHealthResponse { status: 'OK' | 'ERROR'; message: string; }
+
+// Helpers tipados para cada resposta nativa
+async function nativeGetPopular(sourceId: string, page: number): Promise<NativePopularResponse> {
+  const res = await TachiyomiNative.getPopularManga({ sourceId, page });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar populares');
+  return res as NativePopularResponse;
+}
+
+async function nativeGetLatest(sourceId: string, page: number): Promise<NativeMangaResponse> {
+  const res = await TachiyomiNative.getLatestManga({ sourceId, page });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar recentes');
+  return res as NativeMangaResponse;
+}
+
+async function nativeSearch(sourceId: string, query: string, page: number): Promise<NativeSearchResponse> {
+  const res = await TachiyomiNative.searchManga({ sourceId, query, page });
+  if (res?.error) throw new Error(res.message || 'Erro na busca');
+  return res as NativeSearchResponse;
+}
+
+async function nativeGetMangaDetails(sourceId: string, mangaUrl: string): Promise<NativeMangaDetailsResponse> {
+  const res = await TachiyomiNative.getMangaDetails({ sourceId, mangaUrl });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar detalhes');
+  return res as NativeMangaDetailsResponse;
+}
+
+async function nativeGetChapters(sourceId: string, mangaUrl: string): Promise<NativeChaptersResponse> {
+  const res = await TachiyomiNative.getChapterList({ sourceId, mangaUrl });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar capítulos');
+  return res as NativeChaptersResponse;
+}
+
+async function nativeGetPages(sourceId: string, chapterUrl: string): Promise<NativePagesResponse> {
+  const res = await TachiyomiNative.getPageList({ sourceId, chapterUrl });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar páginas');
+  return res as NativePagesResponse;
+}
+
+async function nativeGetOfflinePages(sourceId: string, mangaId: string, chapterId: string): Promise<NativePagesResponse> {
+  const res = await TachiyomiNative.getOfflinePages({ sourceId, mangaId, chapterId });
+  if (res?.error) throw new Error(res.message || 'Erro ao buscar páginas offline');
+  return res as NativePagesResponse;
+}
+
+async function nativeDownloadChapter(sourceId: string, mangaId: string, chapterId: string): Promise<NativeDownloadResponse> {
+  const res = await TachiyomiNative.downloadChapterFromSource({ sourceId, mangaId, chapterId });
+  if (res?.error) throw new Error(res.message || 'Erro no download');
+  return res as NativeDownloadResponse;
+}
+
+async function nativeCheckHealth(sourceId: string): Promise<NativeHealthResponse> {
+  const res = await TachiyomiNative.getPopularManga({ sourceId, page: 1 });
+  if (res?.error) return { status: 'ERROR', message: res.message || 'Falha no health check' };
+  const count = res?.manga?.length || 0;
+  return { status: 'OK', message: `Fonte executada localmente: ${count} obra(s) retornadas.` };
 }
 
 export function getApiBaseUrl(): string {
@@ -747,7 +804,7 @@ export const api = {
       if (await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      return handleNativeResponse(TachiyomiNative.getPopularManga({ sourceId, page }));
+      return nativeGetPopular(sourceId, page);
     }
     // Web com servidor configurado
     try {
@@ -764,7 +821,7 @@ export const api = {
       if (await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      return handleNativeResponse(TachiyomiNative.getLatestManga({ sourceId, page }));
+      return nativeGetLatest(sourceId, page);
     }
     return request<any>(`/sources/${sourceId}/latest?page=${page}`);
   },
@@ -776,7 +833,7 @@ export const api = {
       if (await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      const res = await handleNativeResponse(TachiyomiNative.searchManga({ sourceId, query: q, page }));
+      const res = await nativeSearch(sourceId, q, page);
       if (res?.manga?.length > 0) return res;
       return { manga: [], hasNextPage: false };
     }
@@ -795,12 +852,8 @@ export const api = {
         };
       }
       try {
-        const result = await handleNativeResponse(TachiyomiNative.getPopularManga({ sourceId: id, page: 1 }));
-        const count = result?.manga?.length || 0;
-        return {
-          status: 'OK',
-          message: `Fonte executada localmente: ${count} obra(s) retornadas.`,
-        };
+        const result = await nativeCheckHealth(id);
+        return result;
       } catch (error: any) {
         return {
           status: 'ERROR',
@@ -1163,9 +1216,7 @@ export const api = {
       if (sourceId && await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      const nat = await handleNativeResponse(TachiyomiNative.getMangaDetails({ sourceId, mangaUrl: id }));
-      if (nat && nat.title) return nat;
-      throw new Error(`Extensão "${sourceId}" não retornou detalhes.`);
+      return nativeGetMangaDetails(sourceId, id);
     }
     // Servidor
     try {
@@ -1182,7 +1233,7 @@ export const api = {
       if (sourceId && await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      const nat = await handleNativeResponse(TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId }));
+      const nat = await nativeGetChapters(sourceId, mangaId);
       if (nat?.chapters?.length > 0) return nat.chapters;
       return [];
     }
@@ -1198,7 +1249,7 @@ export const api = {
       if (await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      const result = await handleNativeResponse(TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId }));
+      const result = await nativeGetChapters(sourceId, mangaId);
       const chapters = result?.chapters || [];
       const library = getLocalLibrary();
       const index = library.findIndex((item: any) => String(item.id) === String(mangaId));
@@ -1355,12 +1406,12 @@ export const api = {
       // Tenta offline primeiro
       if (mangaId) {
         try {
-          const offline = await handleNativeResponse(TachiyomiNative.getOfflinePages({ sourceId, mangaId, chapterId }));
+          const offline = await nativeGetOfflinePages(sourceId, mangaId, chapterId);
           if (offline?.pages?.length > 0) return offline;
         } catch {}
       }
       // Busca online via extensão nativa
-      const nat = await handleNativeResponse(TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId }));
+      const nat = await nativeGetPages(sourceId, chapterId);
       if (nat?.pages?.length > 0) return nat;
       throw new Error(`Extensão "${sourceId}" não retornou páginas.`);
     }
@@ -1470,9 +1521,7 @@ export const api = {
       if (await sourceNeedsConfiguration(sourceId)) {
         throw new Error(`[${sourceId}] Esta extensão requer configuração antes de usar. Acesse Configurações > Configuração de Extensões para configurar o servidor e autenticação.`);
       }
-      const result = await handleNativeResponse(TachiyomiNative.downloadChapterFromSource({
-        sourceId, mangaId, chapterId,
-      }));
+      const result = await nativeDownloadChapter(sourceId, mangaId, chapterId);
       if (!result?.success) throw new Error('O download não foi concluído.');
       return result;
     }
