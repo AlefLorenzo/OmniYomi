@@ -470,7 +470,11 @@ async function decompressExtensionIndex(bytes: Uint8Array): Promise<Uint8Array> 
     );
   }
 
-  const compressed = new Blob([bytes]).stream();
+  // Copiar para ArrayBuffer próprio: Uint8Array pode ser tipado com ArrayBufferLike
+  // (incluindo SharedArrayBuffer), que não é um BlobPart aceito pelo TypeScript.
+  const ownedBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(ownedBuffer).set(bytes);
+  const compressed = new Blob([ownedBuffer]).stream();
   const decompressed = compressed.pipeThrough(new DecompressionStream('gzip'));
   return new Uint8Array(await new Response(decompressed).arrayBuffer());
 }
