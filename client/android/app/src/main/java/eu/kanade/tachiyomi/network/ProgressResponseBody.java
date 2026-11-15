@@ -22,7 +22,7 @@ public final class ProgressResponseBody extends ResponseBody {
     }
 
     @Override public MediaType contentType() { return delegate.contentType(); }
-    @Override public long contentLength() throws IOException { return delegate.contentLength(); }
+    @Override public long contentLength() { return delegate.contentLength(); }
 
     @Override public BufferedSource source() {
         if (bufferedSource == null) bufferedSource = Okio.buffer(source(delegate.source()));
