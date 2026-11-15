@@ -134,8 +134,8 @@ public abstract class HttpSource implements CatalogueSource {
 
     /** Kotlin suspend fun getImage(page, existingSize): Response */
     public Object getImage(Page page, long existingSize, Continuation<? super Response> continuation) throws Exception {
-        return getClient().newCachelessCallWithProgress(
-            imageRequest(page), page, existingSize
+        return eu.kanade.tachiyomi.network.OkHttpExtensionsKt.newCachelessCallWithProgress(
+            getClient(), imageRequest(page), page, existingSize
         ).execute();
     }
 
