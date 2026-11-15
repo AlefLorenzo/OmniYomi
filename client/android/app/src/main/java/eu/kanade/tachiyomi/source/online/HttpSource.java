@@ -7,8 +7,10 @@ import eu.kanade.tachiyomi.source.model.MangasPage;
 import eu.kanade.tachiyomi.source.model.Page;
 import eu.kanade.tachiyomi.source.model.SChapter;
 import eu.kanade.tachiyomi.source.model.SManga;
+import java.net.URI;
 import java.security.MessageDigest;
 import java.util.List;
+import kotlin.coroutines.Continuation;
 import okhttp3.Headers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -16,179 +18,175 @@ import okhttp3.Response;
 import rx.Observable;
 import rx.Subscriber;
 
+/**
+ * Host implementation of the Mihon HttpSource contract.
+ * It preserves the legacy request/parse API and supplies the 1.6 suspend JVM
+ * entry points through CatalogueSource/Source default methods.
+ */
 public abstract class HttpSource implements CatalogueSource {
+    private static final NetworkHelper NETWORK = new NetworkHelper();
+
     public abstract String getBaseUrl();
-    public abstract String getName();
-    public abstract String getLang();
-    public boolean getSupportsLatest() { return false; }
+    @Override public abstract String getName();
+    @Override public abstract String getLang();
+    @Override public boolean getSupportsLatest() { return false; }
+
+    public String getHomeUrl() { return getBaseUrl(); }
+    public int getVersionId() { return 1; }
+
+    protected NetworkHelper getNetwork() { return NETWORK; }
 
     @Override
     public long getId() {
-        String key = getName() + "/" + getLang() + "/1";
+        return generateId(getName(), getLang(), getVersionId());
+    }
+
+    protected long generateId(String name, String lang, int versionId) {
+        String safeName = name == null ? getClass().getName() : name;
+        String safeLang = lang == null ? "" : lang;
+        String key = (safeName.toLowerCase(java.util.Locale.ROOT) + "/" + safeLang + "/" + versionId);
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] bytes = md.digest(key.getBytes("UTF-8"));
-            long val = 0;
-            for (int i = 0; i < 8; i++) {
-                val = (val << 8) | (bytes[i] & 0xff);
-            }
-            return Math.abs(val);
+            byte[] bytes = MessageDigest.getInstance("MD5").digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            long value = 0L;
+            for (int i = 0; i < 8; i++) value |= ((long) bytes[i] & 0xffL) << (8 * (7 - i));
+            return value & Long.MAX_VALUE;
         } catch (Exception e) {
-            return (long) key.hashCode();
+            return key.hashCode() & 0x7fffffffL;
         }
     }
 
-    public Headers getHeaders() {
-        return headersBuilder().build();
+    public Headers getHeaders() { return headersBuilder().build(); }
+    protected Headers.Builder headersBuilder() {
+        return new Headers.Builder().add("User-Agent", getNetwork().defaultUserAgentProvider());
     }
+    public OkHttpClient getClient() { return getNetwork().getClient(); }
+    public FilterList getFilterList() { return new FilterList(); }
 
-    public Headers.Builder headersBuilder() {
-        return new Headers.Builder()
-            .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    public Request popularMangaRequest(int page) { throw new UnsupportedOperationException("popularMangaRequest"); }
+    public MangasPage popularMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("popularMangaParse"); }
+    public Request searchMangaRequest(int page, String query, FilterList filters) { throw new UnsupportedOperationException("searchMangaRequest"); }
+    public MangasPage searchMangaParse(Response response) throws Exception { throw new UnsupportedOperationException("searchMangaParse"); }
+    public Request latestUpdatesRequest(int page) { throw new UnsupportedOperationException("latestUpdatesRequest"); }
+    public MangasPage latestUpdatesParse(Response response) throws Exception { throw new UnsupportedOperationException("latestUpdatesParse"); }
+    public Request mangaDetailsRequest(SManga manga) {
+        return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + manga.getUrl(), getHeaders());
     }
-
-    public OkHttpClient getClient() {
-        return NetworkHelper.getClient();
+    public SManga mangaDetailsParse(Response response) throws Exception { throw new UnsupportedOperationException("mangaDetailsParse"); }
+    public Request chapterListRequest(SManga manga) {
+        return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + manga.getUrl(), getHeaders());
     }
-
-    public FilterList getFilterList() {
-        return new FilterList();
+    public List<SChapter> chapterListParse(Response response) throws Exception { throw new UnsupportedOperationException("chapterListParse"); }
+    public Request pageListRequest(SChapter chapter) {
+        return eu.kanade.tachiyomi.network.RequestsKt.GET(getBaseUrl() + chapter.getUrl(), getHeaders());
     }
-
-    public abstract Request popularMangaRequest(int page);
-    public abstract MangasPage popularMangaParse(Response response) throws Exception;
-
-    public abstract Request searchMangaRequest(int page, String query, FilterList filters);
-    public abstract MangasPage searchMangaParse(Response response) throws Exception;
-
-    public Request latestUpdatesRequest(int page) {
-        return popularMangaRequest(page);
-    }
-    public MangasPage latestUpdatesParse(Response response) throws Exception {
-        return popularMangaParse(response);
-    }
-
-    public abstract Request mangaDetailsRequest(SManga manga);
-    public abstract SManga mangaDetailsParse(Response response) throws Exception;
-
-    public abstract Request chapterListRequest(SManga manga);
-    public abstract List<SChapter> chapterListParse(Response response) throws Exception;
-
-    public abstract Request pageListRequest(SChapter chapter);
-    public abstract List<Page> pageListParse(Response response) throws Exception;
-
+    public List<Page> pageListParse(Response response) throws Exception { throw new UnsupportedOperationException("pageListParse"); }
     public Request imageUrlRequest(Page page) {
-        return new Request.Builder().url(page.getUrl()).headers(getHeaders()).build();
+        return eu.kanade.tachiyomi.network.RequestsKt.GET(page.getUrl(), getHeaders());
     }
-    public String imageUrlParse(Response response) throws Exception {
-        return "";
+    public String imageUrlParse(Response response) throws Exception { throw new UnsupportedOperationException("imageUrlParse"); }
+    protected Request imageRequest(Page page) {
+        if (page.getImageUrl() == null) throw new IllegalStateException("Page imageUrl is null");
+        return eu.kanade.tachiyomi.network.RequestsKt.GET(page.getImageUrl(), getHeaders());
     }
 
     @Override
     public Observable<MangasPage> fetchPopularManga(final int page) {
-        return Observable.create(new Observable.OnSubscribe<MangasPage>() {
-            @Override
-            public void call(Subscriber<? super MangasPage> subscriber) {
-                try {
-                    Request req = popularMangaRequest(page);
-                    Response res = getClient().newCall(req).execute();
-                    MangasPage mangasPage = popularMangaParse(res);
-                    subscriber.onNext(mangasPage);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
-            }
-        });
+        return Observable.create(subscriber -> executeParse(popularMangaRequest(page), subscriber, this::popularMangaParse));
     }
 
     @Override
     public Observable<MangasPage> fetchSearchManga(final int page, final String query, final FilterList filters) {
-        return Observable.create(new Observable.OnSubscribe<MangasPage>() {
-            @Override
-            public void call(Subscriber<? super MangasPage> subscriber) {
-                try {
-                    Request req = searchMangaRequest(page, query, filters);
-                    Response res = getClient().newCall(req).execute();
-                    MangasPage mangasPage = searchMangaParse(res);
-                    subscriber.onNext(mangasPage);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
-            }
-        });
+        return Observable.create(subscriber -> executeParse(searchMangaRequest(page, query, filters), subscriber, this::searchMangaParse));
     }
 
     @Override
     public Observable<MangasPage> fetchLatestUpdates(final int page) {
-        return Observable.create(new Observable.OnSubscribe<MangasPage>() {
-            @Override
-            public void call(Subscriber<? super MangasPage> subscriber) {
-                try {
-                    Request req = latestUpdatesRequest(page);
-                    Response res = getClient().newCall(req).execute();
-                    MangasPage mangasPage = latestUpdatesParse(res);
-                    subscriber.onNext(mangasPage);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
-            }
-        });
+        return Observable.create(subscriber -> executeParse(latestUpdatesRequest(page), subscriber, this::latestUpdatesParse));
     }
 
     @Override
     public Observable<SManga> fetchMangaDetails(final SManga manga) {
-        return Observable.create(new Observable.OnSubscribe<SManga>() {
-            @Override
-            public void call(Subscriber<? super SManga> subscriber) {
-                try {
-                    Request req = mangaDetailsRequest(manga);
-                    Response res = getClient().newCall(req).execute();
-                    SManga details = mangaDetailsParse(res);
-                    subscriber.onNext(details);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
-            }
-        });
+        return Observable.create(subscriber -> executeParse(mangaDetailsRequest(manga), subscriber, response -> {
+            SManga details = mangaDetailsParse(response);
+            if (details != null) details.setInitialized(true);
+            return details;
+        }));
     }
 
     @Override
     public Observable<List<SChapter>> fetchChapterList(final SManga manga) {
-        return Observable.create(new Observable.OnSubscribe<List<SChapter>>() {
-            @Override
-            public void call(Subscriber<? super List<SChapter>> subscriber) {
-                try {
-                    Request req = chapterListRequest(manga);
-                    Response res = getClient().newCall(req).execute();
-                    List<SChapter> chapters = chapterListParse(res);
-                    subscriber.onNext(chapters);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
-            }
-        });
+        return Observable.create(subscriber -> executeParse(chapterListRequest(manga), subscriber, this::chapterListParse));
     }
 
     @Override
     public Observable<List<Page>> fetchPageList(final SChapter chapter) {
-        return Observable.create(new Observable.OnSubscribe<List<Page>>() {
-            @Override
-            public void call(Subscriber<? super List<Page>> subscriber) {
-                try {
-                    Request req = pageListRequest(chapter);
-                    Response res = getClient().newCall(req).execute();
-                    List<Page> pages = pageListParse(res);
-                    subscriber.onNext(pages);
-                    subscriber.onCompleted();
-                } catch (Throwable t) {
-                    subscriber.onError(t);
-                }
+        return Observable.create(subscriber -> executeParse(pageListRequest(chapter), subscriber, this::pageListParse));
+    }
+
+    public Observable<String> fetchImageUrl(final Page page) {
+        return Observable.create(subscriber -> executeParse(imageUrlRequest(page), subscriber, this::imageUrlParse));
+    }
+
+    /** Kotlin suspend fun getImageUrl(page): String */
+    public Object getImageUrl(Page page, Continuation<? super String> continuation) {
+        return fetchImageUrl(page).toBlocking().first();
+    }
+
+    /** Kotlin suspend fun getImage(page, existingSize): Response */
+    public Object getImage(Page page, long existingSize, Continuation<? super Response> continuation) throws Exception {
+        return getClient().newCachelessCallWithProgress(
+            imageRequest(page), page, existingSize
+        ).execute();
+    }
+
+    public String getMangaUrl(SManga manga) {
+        return mangaDetailsRequest(manga).url().toString();
+    }
+
+    public String getChapterUrl(SChapter chapter) {
+        return pageListRequest(chapter).url().toString();
+    }
+
+    public void setUrlWithoutDomain(SManga manga, String url) {
+        manga.setUrl(urlWithoutDomain(url));
+    }
+
+    public void setUrlWithoutDomain(SChapter chapter, String url) {
+        chapter.setUrl(urlWithoutDomain(url));
+    }
+
+    protected String urlWithoutDomain(String original) {
+        try {
+            URI uri = new URI(original.replace(" ", "%20"));
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+            if (uri.getRawQuery() != null) path += "?" + uri.getRawQuery();
+            if (uri.getRawFragment() != null) path += "#" + uri.getRawFragment();
+            return path;
+        } catch (Exception e) {
+            return original;
+        }
+    }
+
+    public void prepareNewChapter(SChapter chapter, SManga manga) { }
+
+    private interface ResponseParser<T> { T parse(Response response) throws Exception; }
+
+    private <T> void executeParse(Request request, Subscriber<? super T> subscriber, ResponseParser<T> parser) {
+        if (subscriber.isUnsubscribed()) return;
+        try (Response response = getClient().newCall(request).execute()) {
+            if (!response.isSuccessful()) throw new eu.kanade.tachiyomi.network.HttpException(response.code());
+            T result = parser.parse(response);
+            if (!subscriber.isUnsubscribed()) {
+                subscriber.onNext(result);
+                subscriber.onCompleted();
             }
-        });
+        } catch (Throwable error) {
+            if (!subscriber.isUnsubscribed()) subscriber.onError(error);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return getName() + " (" + getLang().toUpperCase(java.util.Locale.ROOT) + ")";
     }
 }
