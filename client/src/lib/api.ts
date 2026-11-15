@@ -1325,6 +1325,34 @@ export const api = {
 
   // Downloads
   getDownloads: async () => {
+    if (await checkIsNative()) {
+      const native = await TachiyomiNative.getDownloadedChapters();
+      const library = getLocalLibrary();
+      const key = (value: any) => String(value || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+      return (native.downloads || []).map((item: any) => {
+        const manga = library.find((entry: any) =>
+          key(entry.id || entry.sourceMangaId) === item.mangaId &&
+          key(entry.sourceId || 'mangadex') === item.sourceId
+        );
+        const chapter = (manga?.chapters || []).find((entry: any) =>
+          key(entry.id || entry.url || entry.sourceChapterId) === item.chapterId
+        );
+        return {
+          id: `${item.sourceId}:${item.mangaId}:${item.chapterId}`,
+          sourceId: item.sourceId,
+          mangaId: item.mangaId,
+          chapterId: item.chapterId,
+          mangaTitle: manga?.title || item.mangaId,
+          chapterTitle: chapter?.name || chapter?.title || item.chapterId,
+          coverUrl: manga?.coverUrl || '',
+          status: 'COMPLETED',
+          progress: 100,
+          downloadedPages: item.pages,
+          totalPages: item.pages,
+          totalBytes: item.totalBytes,
+        };
+      });
+    }
     try {
       return await request<any[]>('/downloads');
     } catch {
@@ -1332,6 +1360,7 @@ export const api = {
     }
   },
   getStorageUsage: async () => {
+    if (await checkIsNative()) return TachiyomiNative.getStorageUsage();
     try {
       return await request<{ totalBytes: number; formatted: string }>('/downloads/storage');
     } catch {
@@ -1339,40 +1368,70 @@ export const api = {
     }
   },
   enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, imageUrls?: string[]) => {
-    if (sourceId && mangaId && (await checkIsNative())) {
+    if (await checkIsNative()) {
+      if (!sourceId || !mangaId) {
+        throw new Error('sourceId e mangaId são necessários para baixar capítulos no aparelho.');
+      }
       try {
         let urls = imageUrls;
         if (!urls || urls.length === 0) {
           const pagesRes = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
-          urls = pagesRes.pages?.map((p: any) => p.url) || [];
+          urls = pagesRes.pages?.map((page: any) => page.url) || [];
         }
-        if (urls && urls.length > 0) {
-          return await TachiyomiNative.downloadChapter({ sourceId, mangaId, chapterId, imageUrls: urls });
-        }
-      } catch (err: any) {
-        console.error('Erro ao baixar capítulo nativo:', err);
+        if (!urls || urls.length === 0) throw new Error('A fonte não retornou páginas para este capítulo.');
+        const result = await TachiyomiNative.downloadChapter({
+          sourceId, mangaId, chapterId, imageUrls: urls,
+        });
+        if (!result?.success) throw new Error('Nenhuma página foi baixada.');
+        return result;
+      } catch (error: any) {
+        throw new Error(`Falha no download local: ${error?.message || error}`);
       }
     }
     return request<any>('/downloads/enqueue', { method: 'POST', body: JSON.stringify({ chapterId }) });
   },
   enqueueBatch: async (chapterIds: string[], sourceId?: string, mangaId?: string) => {
-    if (sourceId && mangaId && (await checkIsNative())) {
+    if (await checkIsNative()) {
       let count = 0;
-      for (const chId of chapterIds) {
+      const errors: string[] = [];
+      for (const chapterId of chapterIds) {
         try {
-          await api.enqueueDownload(chId, sourceId, mangaId);
+          await api.enqueueDownload(chapterId, sourceId, mangaId);
           count++;
-        } catch {}
+        } catch (error: any) {
+          errors.push(`${chapterId}: ${error?.message || error}`);
+        }
       }
-      return { success: true, enqueuedCount: count };
+      return { success: errors.length === 0, enqueuedCount: count, errors };
     }
     return request<any>('/downloads/enqueue-batch', { method: 'POST', body: JSON.stringify({ chapterIds }) });
   },
-  cancelDownload: (chapterId: string, deleteFiles = false) => request<any>(`/downloads/${chapterId}?deleteFiles=${deleteFiles}`, { method: 'DELETE' }),
-  pauseDownloads: () => request<any>('/downloads/pause', { method: 'POST' }),
-  resumeDownloads: () => request<any>('/downloads/resume', { method: 'POST' }),
-  clearCompleted: () => request<any>('/downloads/clear-completed', { method: 'POST' }),
-  scanLocal: () => request<any>('/downloads/scan-local', { method: 'POST' }),
+  cancelDownload: async (chapterId: string, deleteFiles = false) => {
+    if (await checkIsNative()) {
+      if (!deleteFiles) return { success: false, message: 'Não há fila de downloads em segundo plano no modo Android local.' };
+      return TachiyomiNative.deleteOfflineChapter({ chapterId });
+    }
+    return request<any>(`/downloads/${encodeURIComponent(chapterId)}?deleteFiles=${deleteFiles}`, { method: 'DELETE' });
+  },
+  pauseDownloads: async () => {
+    if (await checkIsNative()) return { success: true, paused: false, message: 'Downloads locais são executados diretamente pelo aparelho.' };
+    return request<any>('/downloads/pause', { method: 'POST' });
+  },
+  resumeDownloads: async () => {
+    if (await checkIsNative()) return { success: true, resumed: true };
+    return request<any>('/downloads/resume', { method: 'POST' });
+  },
+  clearCompleted: async () => {
+    if (await checkIsNative()) return TachiyomiNative.deleteAllOfflineDownloads();
+    return request<any>('/downloads/clear-completed', { method: 'POST' });
+  },
+  scanLocal: async () => {
+    if (await checkIsNative()) {
+      const result = await TachiyomiNative.getDownloadedChapters();
+      return { importedCount: result.downloads?.length || 0 };
+    }
+    return request<any>('/downloads/scan-local', { method: 'POST' });
+  },
 
   // Library
   getLibrary: async (category?: string, search?: string) => {
