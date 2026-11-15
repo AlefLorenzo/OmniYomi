@@ -346,6 +346,26 @@ public class ExtensionManager {
         }
     }
 
+    public MangasPage getLatestManga(String sourceId, int page) throws Exception {
+        Source source = requireSource(sourceId);
+        if (!(source instanceof CatalogueSource)) {
+            throw new IllegalArgumentException("A fonte " + source.getName() + " não oferece catálogo.");
+        }
+        CatalogueSource catalogue = (CatalogueSource) source;
+        if (!catalogue.getSupportsLatest()) {
+            throw new IllegalArgumentException("A fonte " + source.getName() + " não oferece lançamentos recentes.");
+        }
+        try {
+            MangasPage result = catalogue.fetchLatestUpdates(page).toBlocking().first();
+            Log.i(TAG, "getLatestManga(" + source.getName() + ", p" + page + "): "
+                + (result.getMangas() != null ? result.getMangas().size() : 0) + " obras");
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Falha em getLatestManga para " + source.getName(), e);
+            throw new Exception("[" + source.getName() + "] Falha ao buscar lançamentos: " + e.getMessage(), e);
+        }
+    }
+
     public MangasPage searchManga(String sourceId, String query, int page) throws Exception {
         Source s = requireSource(sourceId);
         if (!(s instanceof CatalogueSource)) {
