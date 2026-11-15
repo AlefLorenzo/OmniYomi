@@ -9,9 +9,23 @@ export class SuwayomiService {
   private baseUrl: string = 'http://127.0.0.1:4568';
   private process: ChildProcess | null = null;
   private isStarting: boolean = false;
+  private enabled: boolean = true;
 
-  private suwayomiDir: string =
-    'C:\\Users\\Buggynay\\Downloads\\Suwayomi-Server-v2.4.2366-windows-x64\\Suwayomi-Server-v2.4.2366-windows-x64';
+  // Configuração via variáveis de ambiente
+  private suwayomiDir: string = process.env.SUWAYOMI_DIR || '';
+  private javaPath: string = process.env.SUWAYOMI_JAVA_PATH || '';
+  private jarPath: string = process.env.SUWAYOMI_JAR_PATH || '';
+
+  private constructor() {
+    // Verificar se Suwayomi está habilitado via variável de ambiente
+    this.enabled = process.env.SUWAYOMI_ENABLED !== 'false';
+
+    if (this.enabled && !this.suwayomiDir) {
+      console.warn('[SuwayomiService] SUWAYOMI_DIR não configurado. Suwayomi será desabilitado.');
+      console.warn('[SuwayomiService] Configure SUWAYOMI_DIR, SUWAYOMI_JAVA_PATH e SUWAYOMI_JAR_PATH para habilitar.');
+      this.enabled = false;
+    }
+  }
 
   public static getInstance(): SuwayomiService {
     if (!SuwayomiService.instance) {
@@ -24,7 +38,12 @@ export class SuwayomiService {
     return this.baseUrl;
   }
 
+  public isEnabled(): boolean {
+    return this.enabled;
+  }
+
   public async isHealthy(): Promise<boolean> {
+    if (!this.enabled) return false;
     try {
       const res = await this.restGet('/api/v1/settings/about');
       return Boolean(res && res.name?.includes('Suwayomi'));
@@ -34,6 +53,11 @@ export class SuwayomiService {
   }
 
   public async ensureRunning(): Promise<boolean> {
+    if (!this.enabled) {
+      console.log('[SuwayomiService] Suwayomi desabilitado (configure SUWAYOMI_ENABLED=true e SUWAYOMI_DIR para habilitar)');
+      return false;
+    }
+
     if (await this.isHealthy()) {
       return true;
     }
@@ -51,11 +75,15 @@ export class SuwayomiService {
     console.log('[SuwayomiService] Inicializando runtime Suwayomi na porta 4568...');
 
     try {
-      const javaPath = path.join(this.suwayomiDir, 'jre', 'bin', 'java.exe');
-      const jarPath = path.join(this.suwayomiDir, 'bin', 'Suwayomi-Server.jar');
+      // Usar caminhos configurados ou tentar detectar
+      const javaExecutable = this.javaPath || path.join(this.suwayomiDir, 'jre', 'bin', 'java.exe');
+      const jarFile = this.jarPath || path.join(this.suwayomiDir, 'bin', 'Suwayomi-Server.jar');
 
-      if (!fs.existsSync(javaPath) || !fs.existsSync(jarPath)) {
-        console.error('[SuwayomiService] Binários do Suwayomi não encontrados em', this.suwayomiDir);
+      if (!fs.existsSync(javaExecutable) || !fs.existsSync(jarFile)) {
+        console.error('[SuwayomiService] Binários do Suwayomi não encontrados.');
+        console.error('[SuwayomiService] Java:', javaExecutable);
+        console.error('[SuwayomiService] JAR:', jarFile);
+        console.error('[SuwayomiService] Configure SUWAYOMI_JAVA_PATH e SUWAYOMI_JAR_PATH corretamente.');
         this.isStarting = false;
         return false;
       }
@@ -65,10 +93,10 @@ export class SuwayomiService {
         '--add-exports=java.desktop/sun.awt=ALL-UNNAMED',
         '--enable-native-access=ALL-UNNAMED',
         '-jar',
-        jarPath,
+        jarFile,
       ];
 
-      this.process = spawn(javaPath, args, {
+      this.process = spawn(javaExecutable, args, {
         detached: false,
         stdio: 'ignore',
         windowsHide: true,

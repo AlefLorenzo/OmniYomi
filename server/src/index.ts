@@ -37,6 +37,7 @@ app.get('/api/health', (req, res) => {
     version: '1.0.0',
     app: 'OmniYomi Manga & Manhwa Platform',
     timestamp: Date.now(),
+    suwayomi: suwayomiService.isEnabled() ? 'enabled' : 'disabled (Android native runtime used)'
   });
 });
 
@@ -78,11 +79,19 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`  WebSocket: ws://localhost:${PORT}/ws`);
   console.log(`====================================================`);
 
-  // Inicializar o runtime de extensões Tachiyomi Suwayomi
-  suwayomiService.ensureRunning().then(async (ok) => {
-    if (ok) {
-      console.log('[Motor Tachiyomi] Suwayomi DEX runtime conectado com sucesso!');
-      await extensionManager.syncSuwayomiExtensions();
-    }
-  });
+  // Inicializar o runtime de extensões Tachiyomi Suwayomi (opcional)
+  // O Android usa runtime nativo, então Suwayomi é apenas para o servidor web
+  if (suwayomiService.isEnabled()) {
+    suwayomiService.ensureRunning().then(async (ok) => {
+      if (ok) {
+        console.log('[Motor Tachiyomi] Suwayomi DEX runtime conectado com sucesso!');
+        await extensionManager.syncSuwayomiExtensions();
+      } else {
+        console.log('[Motor Tachiyomi] Suwayomi não disponível - usando extensões nativas do Android');
+      }
+    });
+  } else {
+    console.log('[Motor Tachiyomi] Suwayomi desabilitado - Android usa runtime nativo de extensões');
+    console.log('[Motor Tachiyomi] Para habilitar Suwayomi no servidor, configure SUWAYOMI_ENABLED=true e SUWAYOMI_DIR');
+  }
 });

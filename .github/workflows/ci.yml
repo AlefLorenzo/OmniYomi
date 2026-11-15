@@ -10,7 +10,8 @@ jobs:
   validate:
     name: Build & TypeScript Validation
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,10 +23,10 @@ jobs:
           cache: 'npm'
 
       - name: Instalar dependências raiz
-        run: npm install
+        run: npm ci
 
       - name: Instalar dependências client
-        run: cd client && npm install
+        run: cd client && npm ci
 
       - name: Verificar compilação TypeScript (Server)
         run: npx tsc --noEmit

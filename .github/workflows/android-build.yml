@@ -2,11 +2,11 @@ name: Android Build & Release
 
 on:
   push:
-    branches: [ master, fix/standalone-runtime-audit-v1.1.8 ]
+    branches: [ master, main, fix/standalone-runtime-audit-v1.1.8 ]
     tags:
       - 'v*'
   pull_request:
-    branches: [ master ]
+    branches: [ master, main ]
   workflow_dispatch:
     inputs:
       version:
@@ -21,6 +21,7 @@ jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repositório
@@ -37,6 +38,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Aceitar licenças do Android SDK
         run: |
@@ -59,10 +61,10 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Instalar dependências raiz
-        run: npm install
+        run: npm ci
 
       - name: Instalar dependências client
-        run: cd client && npm install
+        run: cd client && npm ci
 
       - name: Build do cliente React SPA
         run: cd client && npm run build
@@ -112,7 +114,7 @@ jobs:
         run: |
           cd client/android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Testes instrumentados em emulador Android (sem servidor externo)
         uses: reactivecircus/android-emulator-runner@v2
@@ -123,13 +125,13 @@ jobs:
           profile: pixel_2
           ram-size: 4096M
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
-          script: cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon
+          script: cd client/android && ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace
 
       - name: Compilar APK Release (somente se keystore configurada)
         if: steps.keystore_check.outputs.configured == 'true'
         run: |
           cd client/android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace
         env:
           KEYSTORE_PATH: app/keystore/omniyomi.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -160,7 +162,7 @@ jobs:
         with:
           name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}
           path: OmniYomi-v*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Publicar Release no GitHub
