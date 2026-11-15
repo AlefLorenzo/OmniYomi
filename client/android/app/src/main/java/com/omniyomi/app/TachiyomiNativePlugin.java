@@ -50,7 +50,7 @@ public class TachiyomiNativePlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File apkFile = manager.downloadExtension(apkUrl, pkg);
-                List<Source> sources = manager.loadExtensionApk(apkFile);
+                List<Source> sources = manager.loadExtensionApk(apkFile, pkg);
 
                 JSArray arr = new JSArray();
                 for (Source s : sources) {
@@ -94,6 +94,8 @@ public class TachiyomiNativePlugin extends Plugin {
             so.put("id", String.valueOf(s.getId()));
             so.put("name", s.getName());
             so.put("lang", s.getLang());
+            so.put("supportsLatest", s instanceof eu.kanade.tachiyomi.source.CatalogueSource
+                && ((eu.kanade.tachiyomi.source.CatalogueSource) s).getSupportsLatest());
             so.put("isNative", true);
             arr.put(so);
         }
