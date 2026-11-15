@@ -64,6 +64,13 @@ public class NetworkHelper {
         return "Mozilla/5.0 (Linux; Android 13; OmniYomi) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
     }
 
+    /** Kotlin property accessors expected by Mihon extensions. */
+    public CookieJar getCookieJar() { return COOKIE_JAR; }
+
+    /** Deprecated Mihon property; the regular client is the supported client. */
+    public OkHttpClient getCloudflareClient() { return getClient(); }
+
+
     public static Request GET(String url, Headers headers) {
         return new Request.Builder().url(url).headers(headers).build();
     }
