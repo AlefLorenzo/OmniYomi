@@ -9,7 +9,7 @@ export function UpdateChecker() {
   useEffect(() => {
     const timer = setTimeout(async () => {
       const info = await checkForUpdate();
-      if (info) setRelease(info);
+      if (info && info.hasUpdate) setRelease(info);
     }, 3000);
     return () => clearTimeout(timer);
   }, []);

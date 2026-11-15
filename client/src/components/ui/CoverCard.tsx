@@ -12,15 +12,17 @@ interface CoverCardProps {
 }
 
 export function CoverCard({ title, coverUrl, badges, overlay, onClick, className }: CoverCardProps) {
-  // CDNs públicas que carregam diretamente sem precisar de proxy local
+  // CDNs públicas ou quando não há servidor configurado → carrega imagem diretamente sem proxy
+  const base = resolveApiUrl('');
   const isDirectCdn =
-    coverUrl &&
-    (coverUrl.includes('mangadex.org') ||
-     coverUrl.includes('githubusercontent.com') ||
-     coverUrl.includes('jsdelivr.net') ||
-     coverUrl.includes('placehold.co') ||
-     coverUrl.startsWith('data:') ||
-     coverUrl.startsWith('blob:'));
+    !base ||
+    (coverUrl &&
+      (coverUrl.includes('mangadex.org') ||
+       coverUrl.includes('githubusercontent.com') ||
+       coverUrl.includes('jsdelivr.net') ||
+       coverUrl.includes('placehold.co') ||
+       coverUrl.startsWith('data:') ||
+       coverUrl.startsWith('blob:')));
 
   const proxiedUrl = !coverUrl
     ? ''
@@ -46,6 +48,8 @@ export function CoverCard({ title, coverUrl, badges, overlay, onClick, className
             alt={title}
             className="w-full h-full object-cover"
             loading="lazy"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
             onError={e => {
               (e.target as HTMLElement).style.display = 'none';
               const fallback = (e.target as HTMLElement).nextElementSibling as HTMLElement;

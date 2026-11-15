@@ -39,6 +39,10 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+      - name: Configurar local.properties para Android SDK
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > client/android/local.properties
+
       - name: Determinar versão
         id: get_version
         run: |
@@ -59,13 +63,10 @@ jobs:
         env:
           npm_package_version: ${{ steps.get_version.outputs.VERSION }}
 
-      - name: Inicializar Capacitor Android
+      - name: Sincronizar Capacitor Android
         run: |
           cd client
-          npx cap add android || echo "Android platform already added"
-
-      - name: Sincronizar Capacitor
-        run: cd client && npx cap sync android
+          npx cap sync android
 
       - name: Configurar versionamento no build.gradle
         run: |
@@ -118,9 +119,9 @@ jobs:
 
           DEBUG_APK=$(find client/android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -1)
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
-            cp "$DEBUG_APK" "OmniYomi-v${VERSION}-debug.apk"
-            echo "DEBUG_OUTPUT=OmniYomi-v${VERSION}-debug.apk" >> $GITHUB_OUTPUT
-            echo "APK Debug: OmniYomi-v${VERSION}-debug.apk"
+            cp "$DEBUG_APK" "OmniYomi-v${VERSION}.apk"
+            echo "DEBUG_OUTPUT=OmniYomi-v${VERSION}.apk" >> $GITHUB_OUTPUT
+            echo "APK Gerado: OmniYomi-v${VERSION}.apk"
           fi
 
           RELEASE_APK=$(find client/android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
@@ -133,43 +134,35 @@ jobs:
       - name: Upload APK Debug como artefato
         uses: actions/upload-artifact@v4
         with:
-          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}-debug
-          path: OmniYomi-*-debug.apk
+          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}
+          path: OmniYomi-v*.apk
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload APK Release como artefato
-        if: steps.find_apk.outputs.RELEASE_OUTPUT != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}-release
-          path: OmniYomi-*-release.apk
-          retention-days: 30
-
       - name: Publicar Release no GitHub
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           name: OmniYomi v${{ steps.get_version.outputs.VERSION }}
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name || format('v{0}', steps.get_version.outputs.VERSION) }}
           body: |
             ## 📱 OmniYomi v${{ steps.get_version.outputs.VERSION }} — Android APK
 
             Versão oficial do leitor e gerenciador de mangás, manhwas e manhuas OmniYomi para Android.
+            **100% Standalone (sem necessidade de servidor local)**.
 
             ### 📥 Como instalar
-            1. Baixe o arquivo `.apk` abaixo.
+            1. Baixe o arquivo `OmniYomi-v${{ steps.get_version.outputs.VERSION }}.apk` abaixo.
             2. Abra o arquivo no seu celular Android.
             3. Se solicitado, permita a instalação de fontes desconhecidas.
 
-            > **Dica**: Habilite "Instalar apps desconhecidos" no navegador ou gerenciador de arquivos usado.
-
             ### ✨ Recursos desta versão
-            - 🌐 Suporte a extensões Tachiyomi / Keiyoushi
-            - 📖 Leitura online e offline
-            - 📱 Interface responsiva com navegação inferior (Android)
-            - ❤️ Favoritos, histórico e biblioteca
-            - 🔄 Verificador de atualização integrado
+            - 🌐 1.600+ extensões do ecossistema Tachiyomi / Keiyoushi
+            - ⚡ 100% Standalone: funciona direto no celular sem computador ligado
+            - 📖 Leitura online e offline fluida
+            - 📱 Interface responsiva com navegação inferior mobile (BottomNav)
+            - ❤️ Biblioteca, histórico e favoritos locais
+            - 🔄 Verificador e instalador de atualizações integrado via GitHub
           files: |
             OmniYomi-*.apk
           draft: false

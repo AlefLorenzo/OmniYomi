@@ -327,18 +327,24 @@ export function ReaderPage() {
           onScroll={handleScroll}
         >
           <div className="flex flex-col items-center">
-            {pages.map((page, idx) => (
-              <img
-                key={page.index}
-                ref={el => { pageRefs.current[idx] = el; }}
-                src={resolveApiUrl(page.url)}
-                alt={`Página ${page.index}`}
-                className="w-full max-w-3xl mx-auto block"
-                style={{ marginBottom: pageSpacing + 'px' }}
-                loading={idx < 3 ? 'eager' : 'lazy'}
-                onError={e => { (e.target as HTMLImageElement).src = `https://placehold.co/800x1200/111827/4b5563?text=Página+${page.index}`; }}
-              />
-            ))}
+            {pages.map((page, idx) => {
+              const pUrl = page.url || page.imageUrl || '';
+              const pIdx = page.index || page.pageNumber || idx + 1;
+              return (
+                <img
+                  key={pIdx}
+                  ref={el => { pageRefs.current[idx] = el; }}
+                  src={resolveApiUrl(pUrl)}
+                  alt={`Página ${pIdx}`}
+                  className="w-full max-w-3xl mx-auto block"
+                  style={{ marginBottom: pageSpacing + 'px' }}
+                  loading={idx < 3 ? 'eager' : 'lazy'}
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                  onError={e => { (e.target as HTMLImageElement).src = `https://placehold.co/800x1200/111827/4b5563?text=Página+${pIdx}`; }}
+                />
+              );
+            })}
 
             {/* Next chapter prompt at end */}
             <div className="w-full max-w-3xl mx-auto p-8 flex flex-col items-center gap-4 text-center">
@@ -369,10 +375,12 @@ export function ReaderPage() {
         <div className="flex-1 overflow-hidden flex items-center justify-center bg-black">
           {currentPageObj && (
             <img
-              src={resolveApiUrl(currentPageObj.url)}
+              src={resolveApiUrl(currentPageObj.url || currentPageObj.imageUrl || '')}
               alt={`Página ${currentPage}`}
               className={getFitClass()}
               style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
               onError={e => { (e.target as HTMLImageElement).src = `https://placehold.co/800x1200/111827/4b5563?text=Página+${currentPage}`; }}
             />
           )}

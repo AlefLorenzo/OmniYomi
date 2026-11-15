@@ -95,11 +95,12 @@ export function SettingsPage() {
     setUpdateChecked(true);
     try {
       const release = await checkForUpdate();
-      setUpdateAvailable(release);
-      if (release) {
+      const hasUp = Boolean(release && release.hasUpdate);
+      setUpdateAvailable(hasUp ? release : null);
+      if (hasUp && release) {
         show(`Nova versão v${release.version} disponível no GitHub!`, 'info');
       } else {
-        show('OmniYomi está atualizado na versão mais recente!', 'success');
+        show(`OmniYomi v${CURRENT_VERSION} está na versão mais recente!`, 'success');
       }
     } catch (e: any) {
       show('Erro ao verificar atualizações no GitHub.', 'error');

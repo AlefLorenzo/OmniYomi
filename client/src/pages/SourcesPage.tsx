@@ -360,10 +360,10 @@ export function SourcesPage() {
                   </div>
 
                   <div className="flex-shrink-0">
-                    {ext.isExtracted ? (
+                    {ext.isExtracted || ext.isInstalled ? (
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-green-400 flex items-center gap-1 px-2.5 py-1 bg-green-950/60 border border-green-700/40 rounded-lg">
-                          <CheckCircle size={12} /> Extraída
+                          <CheckCircle size={12} /> Instalada
                         </span>
                         <button
                           onClick={() => handleUninstallExtracted(ext.pkg)}
@@ -380,7 +380,7 @@ export function SourcesPage() {
                         onClick={() => handleExtractApk(ext)}
                         loading={extractingPkgs.has(ext.pkg)}
                       >
-                        <Download size={13} /> Extrair APK
+                        <Download size={13} /> Instalar
                       </Button>
                     )}
                   </div>

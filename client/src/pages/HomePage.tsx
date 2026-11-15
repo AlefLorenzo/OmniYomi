@@ -19,36 +19,30 @@ export function HomePage() {
   }, []);
 
   async function loadAll() {
-    // Timeout de segurança: se a rede estiver lenta, não prende o usuário na tela de carregamento
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1200);
-
+    // Carrega dados locais imediatamente (0ms)
     try {
-      const [history, library, popular] = await Promise.all([
-        api.getHistory(6).catch(() => []),
-        api.getLibrary().catch(() => []),
-        api.getPopular('mangadex', 1).catch(() => ({ manga: [] })),
-      ]);
-
+      const history = await api.getHistory(6).catch(() => []);
+      const library = await api.getLibrary().catch(() => []);
+      const downloads = await api.getDownloads().catch(() => []);
       const safeHistory = Array.isArray(history) ? history : [];
       const safeLibrary = Array.isArray(library) ? library : [];
       setRecentHistory(safeHistory);
       setLibraryUpdates(safeLibrary.filter((m: any) => m && m.unreadCount > 0).slice(0, 10));
-      setPopularManga(popular?.manga?.slice(0, 10) || []);
-
-      const downloads = await api.getDownloads().catch(() => []);
       setStats({
         library: safeLibrary.length,
         downloads: Array.isArray(downloads) ? downloads.length : 0,
         history: safeHistory.length,
       });
-    } catch {
-      // safe fallback
-    } finally {
-      clearTimeout(timer);
-      setLoading(false);
-    }
+    } catch {}
+
+    // Desbloqueia a interface imediatamente
+    setLoading(false);
+
+    // Carrega populares do MangaDex em background (não bloqueia a tela)
+    try {
+      const popular = await api.getPopular('mangadex', 1).catch(() => ({ manga: [] }));
+      setPopularManga(popular?.manga?.slice(0, 10) || []);
+    } catch {}
   }
 
   if (loading) {

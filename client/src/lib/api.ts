@@ -1,26 +1,20 @@
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
-  const stored = localStorage.getItem('omniyomi_server_url');
-  if (stored) return stored.replace(/\/$/, '');
 
-  // Se estiver rodando no navegador acessando o IP do PC (ex: http://192.168.0.111:8888/app/)
+  // Servidor salvo manualmente pelo usuário nas configurações → tem prioridade
+  const stored = localStorage.getItem('omniyomi_server_url');
+  if (stored && stored.trim().length > 0) return stored.replace(/\/$/, '');
+
+  // Se estiver rodando no NAVEGADOR do PC acessando via IP:porta (ex: http://192.168.0.111:8888/app/)
+  // Neste caso o próprio servidor está servindo a página → usa como base
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     if (window.location.port === '8888' || window.location.port === '4567') {
       return window.location.origin;
     }
   }
 
-  // Detect Capacitor or Android WebView
-  const isCapacitor =
-    window.location.protocol === 'capacitor:' ||
-    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
-    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173');
-
-  if (isCapacitor) {
-    // Por padrão conecta no IP da máquina na porta 8888 (com proxy HTTP e WebSocket)
-    return 'http://192.168.0.111:8888';
-  }
-
+  // No Capacitor/Android: modo offline por padrão. Sem IP hardcoded.
+  // O usuário pode configurar o servidor nas configurações se quiser.
   return '';
 }
 
@@ -28,8 +22,7 @@ export function isCapacitorApp(): boolean {
   if (typeof window === 'undefined') return false;
   return (
     window.location.protocol === 'capacitor:' ||
-    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
-    (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173')
+    Boolean((window as any).Capacitor?.isNativePlatform?.())
   );
 }
 
@@ -197,16 +190,18 @@ async function getMangaDexPages(chapterId: string) {
   const baseUrl = data.baseUrl;
   const hash = data.chapter.hash;
   const pages = (data.chapter.data || []).map((file: string, idx: number) => ({
+    index: idx + 1,
     pageNumber: idx + 1,
+    url: `${baseUrl}/data/${hash}/${file}`,
     imageUrl: `${baseUrl}/data/${hash}/${file}`,
   }));
-  return { chapterId, pages };
+  return { chapterId, totalPages: pages.length, pages };
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const base = getApiBaseUrl();
-  // Se for aplicativo nativo (Capacitor/Android) e não houver base configurada, não faz chamada relativa para não receber index.html
-  if (!base && isCapacitorApp()) {
+  // Se não houver servidor configurado, não faz chamada relativa (evita receber index.html estático)
+  if (!base) {
     throw new Error('Servidor local não configurado');
   }
 
@@ -438,54 +433,92 @@ export const api = {
   deleteRepo: (url: string) => request<any>('/extensions/repos', { method: 'DELETE', body: JSON.stringify({ url }) }),
   toggleRepo: (url: string, enabled: boolean) => request<any>('/extensions/repos/toggle', { method: 'POST', body: JSON.stringify({ url, enabled }) }),
   getStoreExtensions: async (q?: string, lang?: string) => {
-    // Função auxiliar para buscar do GitHub diretamente (sem servidor)
+    // Busca do repositório oficial Keiyoushi (Tachiyomi / Mihon) diretamente no GitHub
     async function fetchFromGitHub() {
       const URLS = [
-        'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json',
-        'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.min.json',
+        'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json',
+        'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.json',
       ];
       for (const url of URLS) {
         try {
           const ghRes = await fetch(url, { cache: 'default' });
           if (ghRes.ok) {
-            const list = await ghRes.json();
-            let filtered = Array.isArray(list) ? list : [];
+            const data = await ghRes.json();
+            const rawList: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+            const installedList = getLocalInstalledSources();
+
+            // Mapeia todas as extensões do formato Keiyoushi 2026/Mihon
+            let list = rawList.map((e: any) => {
+              const pkg = e.packageName || e.pkg || '';
+              // Extrai idioma principal da extensão
+              let extLang = e.lang;
+              if (!extLang && e.sources && e.sources.length > 0) {
+                extLang = e.sources[0].language || e.sources[0].lang;
+              }
+              if (!extLang) {
+                if (pkg.includes('.pt.') || pkg.includes('.pt-br.')) extLang = 'pt-br';
+                else if (pkg.includes('.en.')) extLang = 'en';
+                else if (pkg.includes('.es.')) extLang = 'es';
+                else if (pkg.includes('.all.')) extLang = 'all';
+                else extLang = 'all';
+              }
+              if (extLang === 'pt-BR') extLang = 'pt-br';
+
+              const isNsfw = e.contentWarning === 'CONTENT_WARNING_NSFW' || Boolean(e.isNsfw || e.nsfw);
+              const iconUrl = e.resources?.iconUrl || (pkg ? `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png` : '');
+              const apkUrl = e.resources?.apkUrl || (e.apk ? `https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/${e.apk}` : '');
+              const isInstalled = installedList.some((s: any) => s.pkg === pkg || s.id === pkg);
+
+              const sources = (e.sources || []).map((s: any) => ({
+                id: String(s.id),
+                name: s.name,
+                baseUrl: s.homeUrl || s.baseUrl || '',
+                lang: s.language || s.lang || extLang,
+              }));
+
+              return {
+                name: e.name,
+                pkg,
+                version: e.versionName || e.version || '1.0.0',
+                lang: extLang,
+                isNsfw,
+                iconUrl,
+                apkUrl,
+                isInstalled,
+                repoName: 'Keiyoushi (Tachiyomi)',
+                sources,
+              };
+            });
+
+            // Filtro de idioma
             if (lang && lang !== 'all') {
-              filtered = filtered.filter((e: any) => e.lang === lang || e.lang === 'all');
+              const targetLang = lang.toLowerCase();
+              list = list.filter((e: any) => {
+                if (e.lang?.toLowerCase() === targetLang || e.lang === 'all') return true;
+                return e.sources?.some((s: any) => s.lang?.toLowerCase().startsWith(targetLang));
+              });
             }
+
+            // Filtro de busca
             if (q && q.trim()) {
               const query = q.toLowerCase();
-              filtered = filtered.filter((e: any) =>
-                e.name?.toLowerCase().includes(query) || e.pkg?.toLowerCase().includes(query)
+              list = list.filter((e: any) =>
+                e.name?.toLowerCase().includes(query) ||
+                e.pkg?.toLowerCase().includes(query) ||
+                e.sources?.some((s: any) => s.name?.toLowerCase().includes(query))
               );
             }
-            const mapped = filtered.map((e: any) => ({
-              name: e.name,
-              pkg: e.pkg,
-              version: e.version,
-              lang: e.lang,
-              isNsfw: Boolean(e.isNsfw || e.nsfw),
-              iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${e.pkg}.png`,
-              apkUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/${e.apk}`,
-              isInstalled: false,
-              repoName: 'Keiyoushi (GitHub)',
-              sources: (e.sources || []).map((s: any) => ({
-                id: s.id,
-                name: s.name,
-                baseUrl: s.baseUrl,
-                lang: s.lang,
-              })),
-            }));
-            return { total: mapped.length, extensions: mapped };
+
+            return { total: list.length, extensions: list };
           }
         } catch {}
       }
-      throw new Error('Não foi possível carregar extensões do GitHub. Verifique sua conexão.');
+      throw new Error('Não foi possível carregar as extensões do repositório Keiyoushi.');
     }
 
     const base = getApiBaseUrl();
     if (!base) {
-      // Sem servidor configurado → vai direto ao GitHub
+      // Sem servidor configurado → vai direto ao GitHub oficial do Keiyoushi
       return fetchFromGitHub();
     }
 
@@ -504,13 +537,16 @@ export const api = {
     try {
       return await request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) });
     } catch {
-      // Salva localmente a extensão instalada no dispositivo
+      // Salva localmente a extensão instalada no dispositivo móvel
       const installed = getLocalInstalledSources();
+      const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
+      const name = pkg.split('.').pop() || pkg;
+      const cleanName = name.charAt(0).toUpperCase() + name.slice(1);
       const newSource = {
         id: pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
-        name: pkg.split('.').pop() || pkg,
+        name: cleanName,
         version: '1.0.0',
-        lang: 'pt-br',
+        lang: pkg.includes('.pt.') ? 'pt-br' : 'en',
         iconUrl: `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`,
         baseUrl: apkUrl,
         isEnabled: true,
@@ -520,11 +556,14 @@ export const api = {
         supportsSearch: true,
         pkg,
       };
-      if (!installed.some((s: any) => s.pkg === pkg)) {
+
+      if (existingIdx >= 0) {
+        installed[existingIdx] = newSource;
+      } else {
         installed.push(newSource);
-        saveLocalInstalledSources(installed);
       }
-      return { success: true, message: 'Extensão instalada no dispositivo móvel com sucesso!' };
+      saveLocalInstalledSources(installed);
+      return { success: true, message: `Extensão ${cleanName} instalada no dispositivo!` };
     }
   },
   uninstallExtracted: async (pkg: string) => {

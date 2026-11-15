@@ -5,10 +5,13 @@ client/node_modules/
 # Builds
 dist/
 client/dist/
-client/android/
-client/ios/
 .gradle/
 build/
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/local.properties
+client/ios/
 
 # Dados locais e bancos
 data/downloads/*

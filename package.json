@@ -1,6 +1,6 @@
 {
   "name": "omniyomi",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "description": "Plataforma completa de leitura, gerenciamento e downloads de mangás e manhwas inspirada no Tachidesk e Tachiyomi",
   "main": "server/src/index.ts",
   "type": "module",
