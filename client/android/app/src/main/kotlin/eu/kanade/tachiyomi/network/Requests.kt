@@ -15,12 +15,15 @@ private val defaultCacheControl = CacheControl.Builder().maxAge(10, TimeUnit.MIN
 private val defaultHeaders = Headers.Builder().build()
 private val defaultBody: RequestBody = FormBody.Builder().build()
 
+@JvmOverloads
 fun GET(url: String, headers: Headers = defaultHeaders, cache: CacheControl = defaultCacheControl): Request =
     GET(url.toHttpUrl(), headers, cache)
 
+@JvmOverloads
 fun GET(url: HttpUrl, headers: Headers = defaultHeaders, cache: CacheControl = defaultCacheControl): Request =
     Request.Builder().url(url).headers(headers).cacheControl(cache).build()
 
+@JvmOverloads
 fun POST(
     url: String,
     headers: Headers = defaultHeaders,
@@ -28,6 +31,7 @@ fun POST(
     cache: CacheControl = defaultCacheControl,
 ): Request = Request.Builder().url(url).post(body).headers(headers).cacheControl(cache).build()
 
+@JvmOverloads
 fun PUT(
     url: String,
     headers: Headers = defaultHeaders,
@@ -35,6 +39,7 @@ fun PUT(
     cache: CacheControl = defaultCacheControl,
 ): Request = Request.Builder().url(url).put(body).headers(headers).cacheControl(cache).build()
 
+@JvmOverloads
 fun DELETE(
     url: String,
     headers: Headers = defaultHeaders,
