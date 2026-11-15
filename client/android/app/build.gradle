@@ -52,6 +52,7 @@ dependencies {
     // Kotlin/coroutines and models required by Mihon/TachiyomiX extension ABI 1.6
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.8.1'
     implementation 'androidx.compose.runtime:runtime:1.8.2'
     implementation 'androidx.preference:preference-ktx:1.2.1'
     implementation 'uy.kohesive.injekt:injekt-core:1.16.1'
