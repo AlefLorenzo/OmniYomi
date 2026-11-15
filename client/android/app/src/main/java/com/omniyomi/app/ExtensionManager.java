@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.util.Log;
 
 import dalvik.system.PathClassLoader;
@@ -123,7 +122,9 @@ public class ExtensionManager {
         // Both supported extension ABIs (legacy 1.4 and suspend 1.6) are
         // exposed by the in-app compatibility API. Do not treat a package name
         // or an index entry as proof of a successful load.
-        Object rawLibVersion = meta.get("tachiyomix.extensionLib");
+        Object rawLibVersion = meta.get("tachiyomi.extensionLib");
+        // Compatibilidade com pacotes comunitários antigos que publicaram a chave com typo.
+        if (rawLibVersion == null) rawLibVersion = meta.get("tachiyomix.extensionLib");
         String extensionLib = rawLibVersion == null ? "" : String.valueOf(rawLibVersion);
         if (!extensionLib.isEmpty()) {
             try {
@@ -221,18 +222,13 @@ public class ExtensionManager {
     }
 
     private ClassLoader createExtensionClassLoader(String apkPath) {
-        // Delegate-last impede que dependências empacotadas pela extensão sejam
-        // substituídas prematuramente por versões incompatíveis do host. As APIs
-        // compartilhadas (eu.kanade.tachiyomi.*) ainda resolvem pelo parent.
-        if (Build.VERSION.SDK_INT >= 27) {
-            try {
-                return new dalvik.system.DelegateLastClassLoader(
-                    apkPath, null, context.getClassLoader()
-                );
-            } catch (Throwable e) {
-                Log.w(TAG, "DelegateLastClassLoader indisponível; usando PathClassLoader", e);
-            }
-        }
+        // As interfaces eu.kanade.tachiyomi.* são o contrato compartilhado entre
+        // o runtime do OmniYomi e o APK. DelegateLastClassLoader pode carregar uma
+        // segunda cópia dessas interfaces a partir do APK, causando falha em
+        // instanceof Source/CatalogueSource mesmo quando a extensão está correta.
+        // PathClassLoader usa delegação parent-first e preserva a identidade das
+        // classes da API do host; dependências ausentes no host continuam sendo
+        // resolvidas pelo DEX do APK.
         return new PathClassLoader(apkPath, context.getClassLoader());
     }
 
