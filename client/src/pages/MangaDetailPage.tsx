@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   BookOpen, Download, Heart, HeartOff, RefreshCw, ArrowLeft,
   CheckSquare, Square, Star, User, Palette, ChevronDown, ChevronUp,
@@ -15,9 +15,14 @@ import { useWs } from '../lib/ws';
 export function MangaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { show } = useToast();
   const { subscribe } = useWs();
   const mangaId = decodeURIComponent(id || '');
+
+  const sourceIdFromNav = searchParams.get('sourceId') || (location.state as any)?.sourceId || '';
+  const [currentSourceId, setCurrentSourceId] = useState(sourceIdFromNav);
 
   const [manga, setManga] = useState<any>(null);
   const [chapters, setChapters] = useState<any[]>([]);
@@ -57,16 +62,18 @@ export function MangaDetailPage() {
     ];
 
     return () => unsubs.forEach(u => u());
-  }, [mangaId]);
+  }, [mangaId, currentSourceId]);
 
   async function loadManga() {
     setLoading(true);
     setError(null);
     try {
-      const [mangaData, chaptersData] = await Promise.all([
-        api.getManga(mangaId),
-        api.getChapters(mangaId),
-      ]);
+      const mangaData = await api.getManga(mangaId, currentSourceId);
+      const effectiveSourceId = mangaData.sourceId || currentSourceId;
+      if (effectiveSourceId && effectiveSourceId !== currentSourceId) {
+        setCurrentSourceId(effectiveSourceId);
+      }
+      const chaptersData = await api.getChapters(mangaId, effectiveSourceId);
       setManga(mangaData);
       setChapters(chaptersData || []);
       setInLibrary(mangaData.inLibrary || false);
@@ -82,7 +89,7 @@ export function MangaDetailPage() {
     setChaptersLoading(true);
     try {
       const res = await api.refreshManga(mangaId);
-      setChapters(res.chapters || await api.getChapters(mangaId));
+      setChapters(res.chapters || await api.getChapters(mangaId, currentSourceId));
       show('Capítulos atualizados!', 'success');
     } catch (e: any) {
       show(e.message, 'error');
@@ -123,8 +130,9 @@ export function MangaDetailPage() {
   async function handleDownloadChapter(chapterId: string) {
     setDownloading(prev => new Set([...prev, chapterId]));
     try {
-      await api.enqueueDownload(chapterId);
-      show('Adicionado à fila de download', 'success');
+      await api.enqueueDownload(chapterId, currentSourceId, mangaId);
+      setChapters(prev => prev.map(c => c.id === chapterId ? { ...c, isDownloaded: true } : c));
+      show('Capítulo baixado e disponível para leitura offline! 📥', 'success');
     } catch (e: any) {
       show(e.message, 'error');
     } finally {
@@ -136,8 +144,9 @@ export function MangaDetailPage() {
     const ids = [...selectedChapters];
     if (ids.length === 0) return;
     try {
-      const res = await api.enqueueBatch(ids);
-      show(`${res.enqueuedCount} capítulos adicionados à fila`, 'success');
+      const res = await api.enqueueBatch(ids, currentSourceId, mangaId);
+      setChapters(prev => prev.map(c => ids.includes(c.id) ? { ...c, isDownloaded: true } : c));
+      show(`${res.enqueuedCount || ids.length} capítulos baixados para leitura offline! 📥`, 'success');
       setSelectedChapters(new Set());
     } catch (e: any) {
       show(e.message, 'error');
@@ -334,7 +343,7 @@ export function MangaDetailPage() {
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-1">
             {nextChapter && (
-              <Button onClick={() => navigate(`/read/${encodeURIComponent(nextChapter.id)}`)} size="md">
+              <Button onClick={() => navigate(`/read/${encodeURIComponent(nextChapter.id)}?sourceId=${encodeURIComponent(currentSourceId || '')}&mangaId=${encodeURIComponent(mangaId)}`)} size="md">
                 <BookOpen size={16} />
                 {firstUnread ? 'Continuar Leitura' : 'Ler do início'}
               </Button>
@@ -508,7 +517,7 @@ export function MangaDetailPage() {
                 {/* Chapter info (clickable) */}
                 <div
                   className="flex-1 min-w-0 cursor-pointer"
-                  onClick={() => navigate(`/read/${encodeURIComponent(ch.id)}`)}
+                  onClick={() => navigate(`/read/${encodeURIComponent(ch.id)}?sourceId=${encodeURIComponent(currentSourceId || '')}&mangaId=${encodeURIComponent(mangaId)}`)}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-200 truncate">
@@ -536,8 +545,8 @@ export function MangaDetailPage() {
                   <button
                     onClick={e => { e.stopPropagation(); handleDownloadChapter(ch.id); }}
                     disabled={downloading.has(ch.id)}
-                    className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-purple-400 transition-all disabled:opacity-50 flex-shrink-0"
-                    title="Baixar capítulo"
+                    className="opacity-80 sm:opacity-0 sm:group-hover:opacity-100 text-gray-400 hover:text-purple-400 transition-all disabled:opacity-50 flex-shrink-0 p-1"
+                    title="Baixar capítulo para ler offline"
                   >
                     {downloading.has(ch.id)
                       ? <Loader2 size={16} className="animate-spin" />

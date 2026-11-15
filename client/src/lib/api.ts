@@ -1,3 +1,5 @@
+import { TachiyomiNative, checkIsNative } from './nativeBridge';
+
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
 
@@ -42,10 +44,23 @@ export function setApiBaseUrl(url: string) {
 
 export function resolveApiUrl(pathOrUrl: string): string {
   if (!pathOrUrl) return '';
-  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://') || pathOrUrl.startsWith('blob:') || pathOrUrl.startsWith('data:')) {
+  if (pathOrUrl.startsWith('file://')) {
+    if (typeof window !== 'undefined' && (window as any).Capacitor?.convertFileSrc) {
+      return (window as any).Capacitor.convertFileSrc(pathOrUrl);
+    }
+    return pathOrUrl;
+  }
+  if (
+    pathOrUrl.startsWith('http://') ||
+    pathOrUrl.startsWith('https://') ||
+    pathOrUrl.startsWith('blob:') ||
+    pathOrUrl.startsWith('data:') ||
+    pathOrUrl.startsWith('capacitor://')
+  ) {
     return pathOrUrl;
   }
   const base = getApiBaseUrl();
+  if (!base) return pathOrUrl;
   const cleanPath = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
   return `${base}${cleanPath}`;
 }
@@ -445,12 +460,46 @@ export const api = {
     const map = new Map<string, any>();
     DEFAULT_POPULAR_SOURCES.forEach(s => map.set(s.id, s));
     locals.forEach(s => map.set(s.id, s));
+
+    // Se estiver no Android nativo, busca também fontes nativas registradas no ExtensionManager
+    try {
+      if (await checkIsNative()) {
+        const nativeRes = await TachiyomiNative.getInstalledSources();
+        if (nativeRes?.sources) {
+          nativeRes.sources.forEach((ns: any) => {
+            const sid = String(ns.id);
+            if (!map.has(sid)) {
+              map.set(sid, {
+                id: sid,
+                name: ns.name,
+                version: '1.0.0',
+                lang: ns.lang || 'all',
+                iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/' + sid + '.png',
+                baseUrl: '',
+                isEnabled: true,
+                isNative: true,
+                hasPopular: true,
+                hasLatest: true,
+                supportsSearch: true,
+              });
+            }
+          });
+        }
+      }
+    } catch {}
+
     return Array.from(map.values());
   },
   getPopular: async (sourceId: string, page = 1) => {
     try {
       return await request<any>(`/sources/${sourceId}/popular?page=${page}`);
     } catch {
+      if (await checkIsNative()) {
+        try {
+          const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
+          if (nat?.manga?.length > 0) return nat;
+        } catch {}
+      }
       return fetchMangaDexPopular(page);
     }
   },
@@ -458,6 +507,12 @@ export const api = {
     try {
       return await request<any>(`/sources/${sourceId}/latest?page=${page}`);
     } catch {
+      if (await checkIsNative()) {
+        try {
+          const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
+          if (nat?.manga?.length > 0) return nat;
+        } catch {}
+      }
       return fetchMangaDexPopular(page);
     }
   },
@@ -465,6 +520,12 @@ export const api = {
     try {
       return await request<any>(`/sources/${sourceId}/search?q=${encodeURIComponent(q)}&page=${page}`);
     } catch {
+      if (await checkIsNative()) {
+        try {
+          const nat = await TachiyomiNative.searchManga({ sourceId, query: q, page });
+          if (nat?.manga?.length > 0) return nat;
+        } catch {}
+      }
       return searchMangaDex(q, page);
     }
   },
@@ -685,6 +746,46 @@ export const api = {
     }
   },
   extractExtension: async (pkg: string, apkUrl: string, repoUrl?: string, extData?: any) => {
+    if (await checkIsNative()) {
+      try {
+        const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
+        const installed = getLocalInstalledSources();
+        const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
+        const cleanName = extData?.name || pkg.split('.').pop() || pkg;
+        const icon = extData?.iconUrl || `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`;
+        const lang = extData?.lang || (pkg.includes('.pt.') ? 'pt-br' : 'en');
+        const sources = (res.sources && res.sources.length > 0) ? res.sources : (extData?.sources || []);
+
+        const newSource = {
+          id: sources[0]?.id || pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
+          name: cleanName,
+          version: extData?.version || '1.0.0',
+          lang,
+          iconUrl: icon,
+          baseUrl: extData?.sources?.[0]?.baseUrl || apkUrl,
+          isEnabled: true,
+          isNsfw: Boolean(extData?.isNsfw),
+          hasPopular: true,
+          hasLatest: true,
+          supportsSearch: true,
+          pkg,
+          repoUrl: repoUrl || extData?.repoUrl || '',
+          sources,
+          isNative: true,
+        };
+
+        if (existingIdx >= 0) {
+          installed[existingIdx] = newSource;
+        } else {
+          installed.push(newSource);
+        }
+        saveLocalInstalledSources(installed);
+        return { success: true, message: `Extensão ${cleanName} instalada e executada nativamente!` };
+      } catch (err: any) {
+        console.error('Falha ao instalar extensão nativa:', err);
+      }
+    }
+
     try {
       return await request<any>('/extensions/extract', { method: 'POST', body: JSON.stringify({ pkg, apkUrl, repoUrl }) });
     } catch {
@@ -728,6 +829,11 @@ export const api = {
     }
   },
   uninstallExtracted: async (pkg: string) => {
+    if (await checkIsNative()) {
+      try {
+        await TachiyomiNative.uninstallExtension({ pkg });
+      } catch {}
+    }
     try {
       return await request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' });
     } catch {
@@ -738,17 +844,29 @@ export const api = {
   },
 
   // Manga
-  getManga: async (id: string) => {
+  getManga: async (id: string, sourceId?: string) => {
     try {
       return await request<any>(`/manga/${id}`);
     } catch {
+      if (sourceId && (await checkIsNative())) {
+        try {
+          const nat = await TachiyomiNative.getMangaDetails({ sourceId, mangaUrl: id });
+          if (nat && nat.title) return nat;
+        } catch {}
+      }
       return getMangaDexDetails(id);
     }
   },
-  getChapters: async (mangaId: string) => {
+  getChapters: async (mangaId: string, sourceId?: string) => {
     try {
       return await request<any[]>(`/manga/${mangaId}/chapters`);
     } catch {
+      if (sourceId && (await checkIsNative())) {
+        try {
+          const nat = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
+          if (nat?.chapters?.length > 0) return nat.chapters;
+        } catch {}
+      }
       return getMangaDexChapters(mangaId);
     }
   },
@@ -791,10 +909,24 @@ export const api = {
     request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
 
   // Chapters
-  getPages: async (chapterId: string) => {
+  getPages: async (chapterId: string, sourceId?: string, mangaId?: string) => {
     try {
       return await request<any>(`/chapters/${chapterId}/pages`);
     } catch {
+      if (sourceId && mangaId && (await checkIsNative())) {
+        try {
+          const offline = await TachiyomiNative.getOfflinePages({ sourceId, mangaId, chapterId });
+          if (offline?.pages?.length > 0) {
+            return offline;
+          }
+        } catch {}
+      }
+      if (sourceId && (await checkIsNative())) {
+        try {
+          const nat = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
+          if (nat?.pages?.length > 0) return nat;
+        } catch {}
+      }
       return getMangaDexPages(chapterId);
     }
   },
@@ -829,8 +961,36 @@ export const api = {
       return { totalBytes: 0, formatted: '0 MB' };
     }
   },
-  enqueueDownload: (chapterId: string) => request<any>('/downloads/enqueue', { method: 'POST', body: JSON.stringify({ chapterId }) }),
-  enqueueBatch: (chapterIds: string[]) => request<any>('/downloads/enqueue-batch', { method: 'POST', body: JSON.stringify({ chapterIds }) }),
+  enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, imageUrls?: string[]) => {
+    if (sourceId && mangaId && (await checkIsNative())) {
+      try {
+        let urls = imageUrls;
+        if (!urls || urls.length === 0) {
+          const pagesRes = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
+          urls = pagesRes.pages?.map((p: any) => p.url) || [];
+        }
+        if (urls && urls.length > 0) {
+          return await TachiyomiNative.downloadChapter({ sourceId, mangaId, chapterId, imageUrls: urls });
+        }
+      } catch (err: any) {
+        console.error('Erro ao baixar capítulo nativo:', err);
+      }
+    }
+    return request<any>('/downloads/enqueue', { method: 'POST', body: JSON.stringify({ chapterId }) });
+  },
+  enqueueBatch: async (chapterIds: string[], sourceId?: string, mangaId?: string) => {
+    if (sourceId && mangaId && (await checkIsNative())) {
+      let count = 0;
+      for (const chId of chapterIds) {
+        try {
+          await api.enqueueDownload(chId, sourceId, mangaId);
+          count++;
+        } catch {}
+      }
+      return { success: true, enqueuedCount: count };
+    }
+    return request<any>('/downloads/enqueue-batch', { method: 'POST', body: JSON.stringify({ chapterIds }) });
+  },
   cancelDownload: (chapterId: string, deleteFiles = false) => request<any>(`/downloads/${chapterId}?deleteFiles=${deleteFiles}`, { method: 'DELETE' }),
   pauseDownloads: () => request<any>('/downloads/pause', { method: 'POST' }),
   resumeDownloads: () => request<any>('/downloads/resume', { method: 'POST' }),

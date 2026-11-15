@@ -37,7 +37,7 @@ export function FavoritesPage() {
               key={m.id}
               title={m.title}
               coverUrl={m.coverUrl}
-              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}${m.sourceId ? `?sourceId=${encodeURIComponent(m.sourceId)}` : ''}`)}
             />
           ))}
         </div>

@@ -337,7 +337,7 @@ export function CatalogPage() {
                   <CoverCard
                     title={m.title}
                     coverUrl={m.coverUrl}
-                    onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+                    onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}?sourceId=${encodeURIComponent(m.sourceId || selectedSource)}`)}
                   />
                   <div className="mt-1 px-1">
                     {m.originalTitle && (
@@ -414,7 +414,7 @@ export function CatalogPage() {
                     <CoverCard
                       title={grp.preferredTitle}
                       coverUrl={grp.coverUrl}
-                      onClick={() => navigate(`/manga/${encodeURIComponent(grp.sources[0]?.mangaId)}`)}
+                      onClick={() => navigate(`/manga/${encodeURIComponent(grp.sources[0]?.mangaId)}?sourceId=${encodeURIComponent(grp.sources[0]?.sourceId || '')}`)}
                       badges={
                         <span className="text-[10px] bg-purple-900/90 text-purple-200 border border-purple-700/50 px-1.5 py-0.5 rounded font-medium shadow-sm">
                           {grp.sources.length} {grp.sources.length === 1 ? 'fonte' : 'fontes'}

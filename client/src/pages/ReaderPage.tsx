@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Menu, X, ZoomIn, ZoomOut, RotateCcw,
   ArrowLeft, Maximize, Minimize, List, BookOpen
@@ -15,8 +15,13 @@ type FitMode = 'fit_width' | 'fit_height' | 'fit_screen' | 'original';
 export function ReaderPage() {
   const { chapterId } = useParams<{ chapterId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { show } = useToast();
   const id = decodeURIComponent(chapterId || '');
+
+  const sourceId = searchParams.get('sourceId') || (location.state as any)?.sourceId || '';
+  const mangaIdFromNav = searchParams.get('mangaId') || (location.state as any)?.mangaId || '';
 
   const [pages, setPages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,7 @@ export function ReaderPage() {
   useEffect(() => {
     if (!id) return;
     loadReader();
-  }, [id]);
+  }, [id, sourceId, mangaIdFromNav]);
 
   async function loadReader() {
     setLoading(true);
@@ -55,22 +60,26 @@ export function ReaderPage() {
       if (settings?.defaultFitMode) setFitMode(settings.defaultFitMode);
       if (settings?.pageSpacing !== undefined) setPageSpacing(settings.pageSpacing);
 
-      // Load pages
-      const pageData = await api.getPages(id);
+      // Determine mangaId
+      let mangaId = mangaIdFromNav;
+      if (!mangaId) {
+        const parts = id.split(':');
+        if (id.startsWith('apk:') && parts.length >= 4) {
+          mangaId = parts.slice(0, parts.length - 1).join(':');
+        } else if (parts.length >= 2) {
+          mangaId = `${parts[0]}:${parts[1]}`;
+        }
+      }
+
+      // Load pages (checking offline downloaded storage first!)
+      const pageData = await api.getPages(id, sourceId, mangaId);
       setPages(pageData.pages || []);
       setTotalPages(pageData.totalPages || pageData.pages?.length || 0);
-      setIsOffline(pageData.isOffline || false);
+      setIsOffline(Boolean(pageData.isOffline));
 
       // Try to load chapter info + sibling chapters
-      const parts = id.split(':');
-      let mangaId = '';
-      if (id.startsWith('apk:') && parts.length >= 4) {
-        mangaId = parts.slice(0, parts.length - 1).join(':');
-      } else if (parts.length >= 2) {
-        mangaId = `${parts[0]}:${parts[1]}`;
-      }
       if (mangaId) {
-        const [chList] = await Promise.all([api.getChapters(mangaId).catch(() => [])]);
+        const [chList] = await Promise.all([api.getChapters(mangaId, sourceId).catch(() => [])]);
         setChapters(chList || []);
         const thisChapter = chList?.find((c: any) => c.id === id);
         setChapter(thisChapter || null);
@@ -167,12 +176,12 @@ export function ReaderPage() {
   const { prev: prevChapter, next: nextChapter } = getAdjacentChapters();
 
   const goNextChapter = () => {
-    if (nextChapter) navigate(`/read/${encodeURIComponent(nextChapter.id)}`);
+    if (nextChapter) navigate(`/read/${encodeURIComponent(nextChapter.id)}?sourceId=${encodeURIComponent(sourceId)}&mangaId=${encodeURIComponent(mangaIdFromNav)}`);
     else show('Você chegou ao último capítulo!', 'info');
   };
 
   const goPrevChapter = () => {
-    if (prevChapter) navigate(`/read/${encodeURIComponent(prevChapter.id)}`);
+    if (prevChapter) navigate(`/read/${encodeURIComponent(prevChapter.id)}?sourceId=${encodeURIComponent(sourceId)}&mangaId=${encodeURIComponent(mangaIdFromNav)}`);
     else show('Você está no primeiro capítulo!', 'info');
   };
 

@@ -111,7 +111,7 @@ export function HomePage() {
               <div
                 key={item.id}
                 className="flex-shrink-0 w-32 cursor-pointer group"
-                onClick={() => navigate(`/manga/${encodeURIComponent(item.mangaId)}`)}
+                onClick={() => navigate(`/manga/${encodeURIComponent(item.mangaId)}${item.sourceId ? `?sourceId=${encodeURIComponent(item.sourceId)}` : ''}`)}
               >
                 <div className="relative aspect-[2/3] w-full rounded-lg overflow-hidden bg-[#1a1e29]">
                   <img
@@ -158,7 +158,7 @@ export function HomePage() {
                 key={m.id}
                 title={m.title}
                 coverUrl={m.coverUrl}
-                onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+                onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}${m.sourceId ? `?sourceId=${encodeURIComponent(m.sourceId)}` : ''}`)}
                 badges={
                   m.unreadCount > 0 ? (
                     <span className="bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
@@ -194,7 +194,7 @@ export function HomePage() {
                 key={m.id}
                 title={m.title}
                 coverUrl={m.coverUrl}
-                onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+                onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}${m.sourceId ? `?sourceId=${encodeURIComponent(m.sourceId)}` : ''}`)}
               />
             ))}
           </div>

@@ -178,7 +178,7 @@ export function LibraryPage() {
               key={m.id}
               title={m.title}
               coverUrl={m.coverUrl}
-              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}${m.sourceId ? `?sourceId=${encodeURIComponent(m.sourceId)}` : ''}`)}
               badges={
                 m.unreadCount > 0 ? (
                   <Badge variant="purple">{m.unreadCount}</Badge>
@@ -195,7 +195,7 @@ export function LibraryPage() {
             <div
               key={m.id}
               className="flex items-center gap-3 p-3 hover:bg-[#1a1e29] cursor-pointer transition-colors"
-              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}`)}
+              onClick={() => navigate(`/manga/${encodeURIComponent(m.id)}${m.sourceId ? `?sourceId=${encodeURIComponent(m.sourceId)}` : ''}`)}
             >
               <img
                 src={m.coverUrl}
