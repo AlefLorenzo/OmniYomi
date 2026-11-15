@@ -276,7 +276,7 @@ export const DEFAULT_REPOSITORIES = [
   {
     id: 'keiyoushi',
     name: 'Keiyoushi (Oficial Tachiyomi / Mihon)',
-    url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json',
+    url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb',
     originalUrl: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb',
     enabled: true,
     lastSynced: Date.now(),
@@ -315,14 +315,160 @@ export const DEFAULT_REPOSITORIES = [
   },
 ];
 
+type ProtoField = {
+  number: number;
+  wireType: number;
+  value?: bigint;
+  bytes?: Uint8Array;
+};
+
+function readProtoVarint(bytes: Uint8Array, start: number): { value: bigint; next: number } {
+  let value = 0n;
+  let shift = 0n;
+  let offset = start;
+
+  while (offset < bytes.length && shift <= 70n) {
+    const byte = bytes[offset++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return { value, next: offset };
+    shift += 7n;
+  }
+
+  throw new Error('Índice Protobuf inválido: varint incompleto ou excessivo.');
+}
+
+function readProtoFields(bytes: Uint8Array): ProtoField[] {
+  const fields: ProtoField[] = [];
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    const tag = readProtoVarint(bytes, offset);
+    offset = tag.next;
+
+    const number = Number(tag.value >> 3n);
+    const wireType = Number(tag.value & 7n);
+    if (!number) throw new Error('Índice Protobuf inválido: número de campo zero.');
+
+    if (wireType === 0) {
+      const decoded = readProtoVarint(bytes, offset);
+      fields.push({ number, wireType, value: decoded.value });
+      offset = decoded.next;
+    } else if (wireType === 2) {
+      const length = readProtoVarint(bytes, offset);
+      offset = length.next;
+      if (length.value > BigInt(bytes.length - offset)) {
+        throw new Error('Índice Protobuf inválido: campo excede o tamanho do arquivo.');
+      }
+      const end = offset + Number(length.value);
+      fields.push({ number, wireType, bytes: bytes.subarray(offset, end) });
+      offset = end;
+    } else if (wireType === 1) {
+      if (offset + 8 > bytes.length) throw new Error('Índice Protobuf inválido: campo fix64 truncado.');
+      offset += 8;
+    } else if (wireType === 5) {
+      if (offset + 4 > bytes.length) throw new Error('Índice Protobuf inválido: campo fix32 truncado.');
+      offset += 4;
+    } else {
+      throw new Error(`Índice Protobuf inválido: wire type ${wireType} não suportado.`);
+    }
+
+    fields.push(...[]);
+  }
+
+  return fields;
+}
+
+function protoText(field?: ProtoField): string {
+  return field?.bytes ? new TextDecoder().decode(field.bytes) : '';
+}
+
+function protoFirst(fields: ProtoField[], number: number): ProtoField | undefined {
+  return fields.find(field => field.number === number);
+}
+
+function protoStrings(fields: ProtoField[], number: number): string[] {
+  return fields.filter(field => field.number === number && field.wireType === 2)
+    .map(field => protoText(field));
+}
+
+function parseProtoSource(bytes: Uint8Array): any {
+  const fields = readProtoFields(bytes);
+  const id = protoFirst(fields, 1)?.value ?? 0n;
+  return {
+    id: id.toString(),
+    name: protoText(protoFirst(fields, 2)),
+    language: protoText(protoFirst(fields, 3)),
+    homeUrl: protoText(protoFirst(fields, 4)),
+    mirrorUrls: protoStrings(fields, 5),
+    message: protoText(protoFirst(fields, 7)),
+  };
+}
+
+function parseProtoExtension(bytes: Uint8Array): any {
+  const fields = readProtoFields(bytes);
+  const resourceBytes = protoFirst(fields, 3)?.bytes;
+  const resources = resourceBytes ? readProtoFields(resourceBytes) : [];
+  const sourceFields = fields.filter(field => field.number === 8 && field.bytes);
+
+  return {
+    name: protoText(protoFirst(fields, 1)),
+    packageName: protoText(protoFirst(fields, 2)),
+    resources: {
+      apkUrl: protoText(protoFirst(resources, 1)),
+      iconUrl: protoText(protoFirst(resources, 2)),
+    },
+    extensionLib: protoText(protoFirst(fields, 4)),
+    versionCode: (protoFirst(fields, 5)?.value ?? 0n).toString(),
+    versionName: protoText(protoFirst(fields, 6)),
+    contentWarning: Number(protoFirst(fields, 7)?.value ?? 0n),
+    sources: sourceFields.map(field => parseProtoSource(field.bytes!)),
+  };
+}
+
+function parseExtensionIndexProto(bytes: Uint8Array): { extensions: any[]; extensionListUrl?: string; name?: string } {
+  const fields = readProtoFields(bytes);
+  const name = protoText(protoFirst(fields, 1));
+  const extensionListField = protoFirst(fields, 101);
+  const extensionListUrl = protoText(protoFirst(fields, 102));
+
+  if (!extensionListField?.bytes) {
+    return { extensions: [], extensionListUrl, name };
+  }
+
+  const listFields = readProtoFields(extensionListField.bytes);
+  const extensions = listFields
+    .filter(field => field.number === 1 && field.bytes)
+    .map(field => parseProtoExtension(field.bytes!));
+
+  return { extensions, name };
+}
+
+async function parseExtensionRepositoryResponse(url: string, response: Response): Promise<any[]> {
+  if (url.toLowerCase().endsWith('.pb')) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const parsed = parseExtensionIndexProto(bytes);
+    if (parsed.extensions.length > 0) return parsed.extensions;
+
+    if (parsed.extensionListUrl) {
+      const nestedResponse = await fetch(parsed.extensionListUrl, { cache: 'default' });
+      if (!nestedResponse.ok) {
+        throw new Error(`Não foi possível carregar a lista de extensões: HTTP ${nestedResponse.status}`);
+      }
+      return parseExtensionRepositoryResponse(parsed.extensionListUrl, nestedResponse);
+    }
+    throw new Error('O índice Protobuf não contém uma lista de extensões.');
+  }
+
+  const data = await response.json();
+  return data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+}
+
 export function normalizeRepoUrl(raw: string): string {
   let u = (raw || '').trim();
   if (u.includes('github.com') && u.includes('/raw/')) {
     u = u.replace('github.com', 'raw.githubusercontent.com').replace('/raw/', '/');
   }
-  if (u.endsWith('.pb')) {
-    u = u.replace(/\.pb$/, '.json');
-  }
+  // Preserve index.pb: ele é Protobuf e precisa ser decodificado como binário.
   return u;
 }
 
@@ -662,16 +808,13 @@ export const api = {
           const candidates = [primaryUrl];
           if (primaryUrl.endsWith('index.min.json')) {
             candidates.push(primaryUrl.replace('index.min.json', 'index.json'));
-          } else if (primaryUrl.endsWith('index.json')) {
-            candidates.push(primaryUrl.replace('index.json', 'index.min.json'));
           }
 
           for (const u of candidates) {
             try {
               const res = await fetch(u, { cache: 'default' });
               if (!res.ok) continue;
-              const data = await res.json();
-              let rawList: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+              const rawList: any[] = await parseExtensionRepositoryResponse(u, res);
 
               // Se o index.min.json contiver apenas o aviso de app desatualizado, tenta o próximo candidato
               if (
@@ -701,7 +844,8 @@ export const api = {
                 }
                 if (extLang === 'pt-BR') extLang = 'pt-br';
 
-                const isNsfw = e.contentWarning === 'CONTENT_WARNING_NSFW' || Boolean(e.isNsfw || e.nsfw);
+                const warning = e.contentWarning;
+                const isNsfw = warning === 'CONTENT_WARNING_NSFW' || warning === 3 || Boolean(e.isNsfw || e.nsfw);
                 const iconUrl =
                   e.resources?.iconUrl ||
                   (pkg ? `${repoBaseUrl}/icon/${pkg}.png` : '') ||
@@ -722,6 +866,8 @@ export const api = {
                   name: e.name,
                   pkg,
                   version: e.versionName || e.version || '1.0.0',
+                  versionCode: String(e.versionCode || ''),
+                  extensionLib: String(e.extensionLib || e.libVersion || ''),
                   lang: extLang,
                   isNsfw,
                   iconUrl,
