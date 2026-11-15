@@ -3,20 +3,20 @@ import { TachiyomiNative, checkIsNative } from './nativeBridge';
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
 
-  // Servidor salvo manualmente pelo usuário nas configurações → tem prioridade
-  const stored = localStorage.getItem('omniyomi_server_url');
-  if (stored && stored.trim().length > 0) return stored.replace(/\/$/, '');
+  // No APK, o OmniYomi é standalone. Ignore URLs antigas salvas pelo site/desktop
+  // para nenhuma operação mobile voltar silenciosamente a depender de um servidor.
+  if (isCapacitorApp()) return '';
 
-  // Se estiver rodando no NAVEGADOR do PC acessando via IP:porta (ex: http://192.168.0.111:8888/app/)
-  // Neste caso o próprio servidor está servindo a página → usa como base
+  // Navegador/desktop: servidor opcional existente continua suportado.
+  const stored = localStorage.getItem('omniyomi_server_url');
+  if (stored && stored.trim().length > 0) return stored.replace(/\\/$/, '');
+
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     if (window.location.port === '8888' || window.location.port === '4567') {
       return window.location.origin;
     }
   }
 
-  // No Capacitor/Android: modo offline por padrão. Sem IP hardcoded.
-  // O usuário pode configurar o servidor nas configurações se quiser.
   return '';
 }
 
@@ -462,6 +462,48 @@ export const api = {
 
   // Sources
   getSources: async () => {
+    // Android: fontes exibidas são apenas as que o runtime nativo realmente carregou.
+    // Não misture fontes de catálogo estático, slugs de pacote ou registros antigos/falsos.
+    if (await checkIsNative()) {
+      const [nativeRes, savedSources] = await Promise.all([
+        TachiyomiNative.getInstalledSources(),
+        Promise.resolve(getLocalInstalledSources()),
+      ]);
+      const savedById = new Map<string, any>(
+        savedSources.map((source: any) => [String(source.id), source])
+      );
+      const map = new Map<string, any>();
+
+      for (const nativeSource of nativeRes?.sources || []) {
+        const id = String(nativeSource.id);
+        const saved = savedById.get(id) || {};
+        map.set(id, {
+          ...saved,
+          id,
+          nativeSourceId: id,
+          name: nativeSource.name || saved.name || id,
+          version: saved.version || 'unknown',
+          lang: nativeSource.lang || saved.lang || 'all',
+          iconUrl: saved.iconUrl || '',
+          baseUrl: saved.baseUrl || '',
+          pkg: saved.pkg,
+          isEnabled: saved.isEnabled !== false,
+          isNative: true,
+          isInstalled: true,
+          hasPopular: true,
+          hasLatest: Boolean(nativeSource.supportsLatest ?? true),
+          supportsSearch: true,
+        });
+      }
+
+      // MangaDex é a única fonte HTTP embutida; as demais precisam vir do runtime.
+      const mangaDex = DEFAULT_POPULAR_SOURCES.find((source: any) => source.id === 'mangadex');
+      if (mangaDex) map.set('mangadex', mangaDex);
+
+      return Array.from(map.values());
+    }
+
+    // Navegador: mantém a integração atual com o servidor quando configurado.
     try {
       const serverSources = await request<any[]>('/sources');
       if (Array.isArray(serverSources) && serverSources.length > 0) return serverSources;
@@ -469,36 +511,8 @@ export const api = {
 
     const locals = getLocalInstalledSources();
     const map = new Map<string, any>();
-    DEFAULT_POPULAR_SOURCES.forEach(s => map.set(s.id, s));
-    locals.forEach(s => map.set(s.id, s));
-
-    // Se estiver no Android nativo, busca também fontes nativas registradas no ExtensionManager
-    try {
-      if (await checkIsNative()) {
-        const nativeRes = await TachiyomiNative.getInstalledSources();
-        if (nativeRes?.sources) {
-          nativeRes.sources.forEach((ns: any) => {
-            const sid = String(ns.id);
-            if (!map.has(sid)) {
-              map.set(sid, {
-                id: sid,
-                name: ns.name,
-                version: '1.0.0',
-                lang: ns.lang || 'all',
-                iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/' + sid + '.png',
-                baseUrl: '',
-                isEnabled: true,
-                isNative: true,
-                hasPopular: true,
-                hasLatest: true,
-                supportsSearch: true,
-              });
-            }
-          });
-        }
-      }
-    } catch {}
-
+    DEFAULT_POPULAR_SOURCES.forEach(source => map.set(source.id, source));
+    locals.forEach((source: any) => map.set(source.id, source));
     return Array.from(map.values());
   },
   getPopular: async (sourceId: string, page = 1) => {
