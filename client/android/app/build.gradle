@@ -59,6 +59,7 @@ dependencies {
     implementation 'androidx.compose.runtime:runtime:1.8.2'
     implementation 'androidx.preference:preference-ktx:1.2.1'
     implementation 'uy.kohesive.injekt:injekt-core:1.16.1'
+    implementation 'com.github.zhanghai:quickjs-android:547f5b1597'
 }
 
 apply from: 'capacitor.build.gradle'
