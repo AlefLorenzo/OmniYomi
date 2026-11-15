@@ -2,14 +2,17 @@ name: Android Build & Release
 
 on:
   push:
+    branches: [ master ]
     tags:
       - 'v*'
+  pull_request:
+    branches: [ master ]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versão do APK (ex: 1.0.0)'
+        description: 'Versão do APK (ex: 1.1.6)'
         required: true
-        default: '1.0.0'
+        default: '1.1.6'
 
 permissions:
   contents: write
@@ -46,11 +49,14 @@ jobs:
       - name: Determinar versão
         id: get_version
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
           else
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=$(node -p "require('./client/package.json').version")
           fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Instalar dependências raiz
         run: npm install
@@ -143,7 +149,7 @@ jobs:
         with:
           name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}
           path: OmniYomi-v*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
       - name: Publicar Release no GitHub
@@ -155,8 +161,7 @@ jobs:
           body: |
             ## 📱 OmniYomi v${{ steps.get_version.outputs.VERSION }} — Android APK
 
-            Versão oficial do leitor e gerenciador de mangás, manhwas e manhuas OmniYomi para Android.
-            **100% Standalone (sem necessidade de servidor local)**.
+            Build Android do OmniYomi. Confira as notas da versão e a matriz de compatibilidade das extensões no repositório antes de instalar.
 
             ### 📥 Como instalar
             1. Baixe o arquivo `OmniYomi-v${{ steps.get_version.outputs.VERSION }}.apk` abaixo.
@@ -164,8 +169,8 @@ jobs:
             3. Se solicitado, permita a instalação de fontes desconhecidas.
 
             ### ✨ Recursos desta versão
-            - 🌐 1.600+ extensões do ecossistema Tachiyomi / Keiyoushi
-            - ⚡ 100% Standalone: funciona direto no celular sem computador ligado
+            - 📦 Instalação de extensões com validação do runtime nativo disponível
+            - 🌐 Consulta direta aos repositórios de extensões GitHub
             - 📖 Leitura online e offline fluida
             - 📱 Interface responsiva com navegação inferior mobile (BottomNav)
             - ❤️ Biblioteca, histórico e favoritos locais
