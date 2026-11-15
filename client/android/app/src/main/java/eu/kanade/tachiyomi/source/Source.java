@@ -19,7 +19,7 @@ import rx.Observable;
 public interface Source {
     long getId();
     String getName();
-    String getLang();
+    default String getLang() { return ""; }
 
     /** Exists on the 1.6 ABI; default keeps older 1.4 extensions loadable. */
     default boolean getSupportsLatest() { return false; }
