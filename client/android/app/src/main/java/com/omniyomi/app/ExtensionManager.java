@@ -551,7 +551,16 @@ public class ExtensionManager {
                         .headers(httpSource.getHeaders())
                         .build();
                 } else {
-                    request = httpSource.imageUrlRequest(page);
+                    // Resolve the image URL through the public source API so each
+                    // extension can apply its own imageUrlRequest/imageUrlParse logic.
+                    String resolvedImageUrl = httpSource.fetchImageUrl(page).toBlocking().first();
+                    if (resolvedImageUrl == null || resolvedImageUrl.trim().isEmpty()) {
+                        throw new IOException("A fonte não conseguiu resolver a URL da imagem.");
+                    }
+                    request = new Request.Builder()
+                        .url(resolvedImageUrl)
+                        .headers(httpSource.getHeaders())
+                        .build();
                 }
             } else {
                 request = new Request.Builder()
