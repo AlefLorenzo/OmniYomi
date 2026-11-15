@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, TrendingUp, Clock, Globe, ShieldCheck, ShieldAlert, Sparkles, Filter, Layers } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, TrendingUp, Clock, Globe, ShieldCheck, ShieldAlert, Sparkles, Filter, Layers, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { CoverCard } from '../components/ui/CoverCard';
 import { Button, Input, Loader, Empty } from '../components/ui/index';
@@ -228,20 +228,35 @@ export function CatalogPage() {
             </div>
           </div>
 
-          {/* Cloudflare / FlareSolverr status pill */}
-          {flaresolverr && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-400">
-              {flaresolverr.available ? (
-                <span className="flex items-center gap-1 text-emerald-400" title={flaresolverr.message}>
-                  <ShieldCheck size={14} /> FlareSolverr Ativo
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-amber-500/80" title={flaresolverr.message}>
-                  <ShieldAlert size={14} /> CF Protegido
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {currentSourceInfo.baseUrl && currentSourceInfo.baseUrl.startsWith('http') && (
+              <a
+                href={currentSourceInfo.baseUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white px-3 py-1.5 rounded-lg border border-purple-500/30 transition-all font-medium"
+                title="Visitar página da fonte"
+              >
+                <ExternalLink size={13} />
+                <span className="hidden sm:inline">Abrir Site</span>
+              </a>
+            )}
+
+            {/* Cloudflare / FlareSolverr status pill */}
+            {flaresolverr && (
+              <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-400">
+                {flaresolverr.available ? (
+                  <span className="flex items-center gap-1 text-emerald-400" title={flaresolverr.message}>
+                    <ShieldCheck size={14} /> FlareSolverr Ativo
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-amber-500/80" title={flaresolverr.message}>
+                    <ShieldAlert size={14} /> CF Protegido
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

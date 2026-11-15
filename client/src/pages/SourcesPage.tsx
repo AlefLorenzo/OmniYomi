@@ -28,6 +28,7 @@ export function SourcesPage() {
   const [loadingStore, setLoadingStore] = useState(false);
   const [storeSearch, setStoreSearch] = useState('');
   const [storeLang, setStoreLang] = useState('all');
+  const [storeRepo, setStoreRepo] = useState('all');
   const [extractingPkgs, setExtractingPkgs] = useState<Set<string>>(new Set());
   const searchDebounce = useRef<number | null>(null);
 
@@ -41,11 +42,12 @@ export function SourcesPage() {
 
   useEffect(() => {
     loadInstalledSources();
+    loadRepos();
   }, []);
 
   useEffect(() => {
     if (activeTab === 'store') {
-      loadStore(storeSearch, storeLang);
+      loadStore(storeSearch, storeLang, storeRepo);
     } else if (activeTab === 'repos') {
       loadRepos();
     }
@@ -71,10 +73,10 @@ export function SourcesPage() {
     }
   }
 
-  async function loadStore(q?: string, lang?: string) {
+  async function loadStore(q?: string, lang?: string, repo?: string) {
     setLoadingStore(true);
     try {
-      const res = await api.getStoreExtensions(q, lang);
+      const res = await api.getStoreExtensions(q, lang, repo);
       setStoreExtensions(res.extensions || []);
       setStoreTotal(res.total || 0);
     } catch (e: any) {
@@ -88,13 +90,18 @@ export function SourcesPage() {
     setStoreSearch(val);
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
     searchDebounce.current = window.setTimeout(() => {
-      loadStore(val, storeLang);
+      loadStore(val, storeLang, storeRepo);
     }, 400);
   }
 
   function handleStoreLangChange(l: string) {
     setStoreLang(l);
-    loadStore(storeSearch, l);
+    loadStore(storeSearch, l, storeRepo);
+  }
+
+  function handleStoreRepoChange(r: string) {
+    setStoreRepo(r);
+    loadStore(storeSearch, storeLang, r);
   }
 
   async function handleHealthCheck(id: string) {
@@ -123,9 +130,9 @@ export function SourcesPage() {
   async function handleExtractApk(ext: any) {
     setExtractingPkgs(prev => new Set([...prev, ext.pkg]));
     try {
-      await api.extractExtension(ext.pkg, ext.apkUrl, ext.repoUrl);
-      show(`Extensão "${ext.name}" extraída e instalada com sucesso!`, 'success');
-      // Mark as extracted in store list
+      await api.extractExtension(ext.pkg, ext.apkUrl, ext.repoUrl, ext);
+      show(`Extensão "${ext.name}" instalada com sucesso!`, 'success');
+      // Atualiza status local
       setStoreExtensions(prev => prev.map(e => e.pkg === ext.pkg ? { ...e, isExtracted: true, isInstalled: true } : e));
       loadInstalledSources();
     } catch (e: any) {
@@ -269,11 +276,24 @@ export function SourcesPage() {
                 <button
                   onClick={() => navigate(`/catalog?source=${encodeURIComponent(src.id)}`)}
                   className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white transition-all px-3 py-1.5 rounded-lg cursor-pointer font-medium"
-                  title="Explorar obras desta fonte"
+                  title="Explorar obras desta fonte no catálogo"
                 >
                   <BookOpen size={13} />
                   <span>Explorar</span>
                 </button>
+
+                {src.baseUrl && src.baseUrl.startsWith('http') && (
+                  <a
+                    href={src.baseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1 text-xs bg-[#242c3d] hover:bg-[#2e374d] text-gray-300 hover:text-white transition-all px-2.5 py-1.5 rounded-lg cursor-pointer"
+                    title="Visitar site oficial da fonte"
+                  >
+                    <ExternalLink size={12} />
+                    <span className="hidden sm:inline">Site</span>
+                  </a>
+                )}
 
                 <button
                   onClick={() => handleHealthCheck(src.id)}
@@ -297,29 +317,42 @@ export function SourcesPage() {
         </div>
       )}
 
-      {/* TAB 2: STORE (1600+ EXTENSIONS) */}
+      {/* TAB 2: STORE (EXTENSIONS FROM ALL REPOS) */}
       {activeTab === 'store' && (
         <div className="space-y-4">
           {/* Controls */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="flex-1">
               <Input
                 value={storeSearch}
                 onChange={e => handleStoreSearch(e.target.value)}
-                placeholder="Pesquisar entre 1.600+ extensões (ex: Asura, Flame, Scan, Manga...)"
+                placeholder="Pesquisar entre quase 3.000 extensões (ex: Asura, Flame, Scan, Manga...)"
                 leftIcon={<Search size={15} />}
               />
             </div>
-            <select
-              value={storeLang}
-              onChange={e => handleStoreLangChange(e.target.value)}
-              className="bg-[#1a1e29] border border-[#2a3040] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 cursor-pointer min-w-[160px]"
-            >
-              <option value="all">Todos os idiomas</option>
-              <option value="pt-br">Português (PT-BR / PT)</option>
-              <option value="en">Inglês (EN)</option>
-              <option value="es">Espanhol (ES)</option>
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={storeRepo}
+                onChange={e => handleStoreRepoChange(e.target.value)}
+                className="bg-[#1a1e29] border border-[#2a3040] text-gray-200 rounded-lg px-2.5 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 cursor-pointer max-w-[160px] truncate"
+              >
+                <option value="all">Todos os Repositórios</option>
+                {repos.map(r => (
+                  <option key={r.url} value={r.url}>{r.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={storeLang}
+                onChange={e => handleStoreLangChange(e.target.value)}
+                className="bg-[#1a1e29] border border-[#2a3040] text-gray-200 rounded-lg px-2.5 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 cursor-pointer min-w-[120px]"
+              >
+                <option value="all">Todos Idiomas</option>
+                <option value="pt-br">Português (PT-BR)</option>
+                <option value="en">Inglês (EN)</option>
+                <option value="es">Espanhol (ES)</option>
+              </select>
+            </div>
           </div>
 
           <p className="text-xs text-gray-500">
@@ -421,9 +454,9 @@ export function SourcesPage() {
 
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-200 text-sm">{r.name}</p>
-                    <p className="text-xs text-gray-500 font-mono truncate">{r.url}</p>
+                    <p className="text-xs text-purple-400 font-mono truncate">{r.originalUrl || r.url}</p>
                     {r.lastSynced && (
-                      <p className="text-[11px] text-gray-600 mt-0.5">Sincronizado {formatRelativeDate(r.lastSynced)}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Sincronizado {formatRelativeDate(r.lastSynced)}</p>
                     )}
                   </div>
 
@@ -459,7 +492,7 @@ export function SourcesPage() {
       >
         <div className="space-y-4">
           <p className="text-xs text-gray-400">
-            Insira o link direto para o arquivo <code className="text-purple-300">index.min.json</code> ou <code className="text-purple-300">index.json</code> do repositório compatível com Tachiyomi/Suwayomi.
+            Insira o link para o arquivo <code className="text-purple-300">index.pb</code>, <code className="text-purple-300">index.json</code> ou <code className="text-purple-300">index.min.json</code> do repositório (Tachiyomi, Suwayomi, Mihon). O OmniYomi converte e extrai automaticamente do GitHub.
           </p>
 
           <Input
