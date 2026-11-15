@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versão do APK (ex: 1.1.6)'
+        description: 'Versão do APK (ex: 1.1.8)
         required: true
-        default: '1.1.6'
+        default: '1.1.8'
 
 permissions:
   contents: write
