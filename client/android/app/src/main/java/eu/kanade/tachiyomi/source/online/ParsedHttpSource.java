@@ -12,73 +12,79 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+/**
+ * Compatibility implementation of Mihon's ParsedHttpSource selectors.
+ * Selector hooks are protected to match the Kotlin source API binary contract.
+ */
 public abstract class ParsedHttpSource extends HttpSource {
-    public abstract String popularMangaSelector();
-    public abstract SManga popularMangaFromElement(Element element);
-    public abstract String popularMangaNextPageSelector();
+    protected abstract String popularMangaSelector();
+    protected abstract SManga popularMangaFromElement(Element element);
+    protected abstract String popularMangaNextPageSelector();
+
+    protected abstract String searchMangaSelector();
+    protected abstract SManga searchMangaFromElement(Element element);
+    protected abstract String searchMangaNextPageSelector();
+
+    protected String latestUpdatesSelector() { return popularMangaSelector(); }
+    protected SManga latestUpdatesFromElement(Element element) { return popularMangaFromElement(element); }
+    protected String latestUpdatesNextPageSelector() { return popularMangaNextPageSelector(); }
+
+    protected abstract String chapterListSelector();
+    protected abstract SChapter chapterFromElement(Element element);
+    protected abstract SManga mangaDetailsParse(Document document);
+    protected abstract List<Page> pageListParse(Document document);
+    protected String imageUrlParse(Document document) { throw new UnsupportedOperationException("imageUrlParse(Document)"); }
 
     @Override
-    public MangasPage popularMangaParse(Response response) throws Exception {
-        String html = response.body().string();
-        Document document = Jsoup.parse(html, getBaseUrl());
-        Elements elements = document.select(popularMangaSelector());
+    protected MangasPage popularMangaParse(Response response) throws Exception {
+        Document document = Jsoup.parse(response.body().string(), response.request().url().toString());
         List<SManga> mangas = new ArrayList<>();
-        for (Element el : elements) {
-            mangas.add(popularMangaFromElement(el));
-        }
-        String nextSelector = popularMangaNextPageSelector();
-        boolean hasNext = nextSelector != null && !document.select(nextSelector).isEmpty();
-        return new MangasPage(mangas, hasNext);
+        for (Element element : document.select(popularMangaSelector())) mangas.add(popularMangaFromElement(element));
+        String next = popularMangaNextPageSelector();
+        return new MangasPage(mangas, next != null && !document.select(next).isEmpty());
     }
 
-    public abstract String searchMangaSelector();
-    public abstract SManga searchMangaFromElement(Element element);
-    public abstract String searchMangaNextPageSelector();
-
     @Override
-    public MangasPage searchMangaParse(Response response) throws Exception {
-        String html = response.body().string();
-        Document document = Jsoup.parse(html, getBaseUrl());
-        Elements elements = document.select(searchMangaSelector());
+    protected MangasPage searchMangaParse(Response response) throws Exception {
+        Document document = Jsoup.parse(response.body().string(), response.request().url().toString());
         List<SManga> mangas = new ArrayList<>();
-        for (Element el : elements) {
-            mangas.add(searchMangaFromElement(el));
-        }
-        String nextSelector = searchMangaNextPageSelector();
-        boolean hasNext = nextSelector != null && !document.select(nextSelector).isEmpty();
-        return new MangasPage(mangas, hasNext);
+        for (Element element : document.select(searchMangaSelector())) mangas.add(searchMangaFromElement(element));
+        String next = searchMangaNextPageSelector();
+        return new MangasPage(mangas, next != null && !document.select(next).isEmpty());
     }
 
-    public abstract String chapterListSelector();
-    public abstract SChapter chapterFromElement(Element element);
+    @Override
+    protected MangasPage latestUpdatesParse(Response response) throws Exception {
+        Document document = Jsoup.parse(response.body().string(), response.request().url().toString());
+        List<SManga> mangas = new ArrayList<>();
+        String selector = latestUpdatesSelector();
+        if (selector != null) {
+            for (Element element : document.select(selector)) mangas.add(latestUpdatesFromElement(element));
+        }
+        String next = latestUpdatesNextPageSelector();
+        return new MangasPage(mangas, next != null && !document.select(next).isEmpty());
+    }
 
     @Override
-    public List<SChapter> chapterListParse(Response response) throws Exception {
-        String html = response.body().string();
-        Document document = Jsoup.parse(html, getBaseUrl());
-        Elements elements = document.select(chapterListSelector());
+    protected List<SChapter> chapterListParse(Response response) throws Exception {
+        Document document = Jsoup.parse(response.body().string(), response.request().url().toString());
         List<SChapter> chapters = new ArrayList<>();
-        for (Element el : elements) {
-            chapters.add(chapterFromElement(el));
-        }
+        for (Element element : document.select(chapterListSelector())) chapters.add(chapterFromElement(element));
         return chapters;
     }
 
-    public abstract SManga mangaDetailsParse(Document document);
-
     @Override
-    public SManga mangaDetailsParse(Response response) throws Exception {
-        String html = response.body().string();
-        Document document = Jsoup.parse(html, getBaseUrl());
-        return mangaDetailsParse(document);
+    protected SManga mangaDetailsParse(Response response) throws Exception {
+        return mangaDetailsParse(Jsoup.parse(response.body().string(), response.request().url().toString()));
     }
 
-    public abstract List<Page> pageListParse(Document document);
+    @Override
+    protected List<Page> pageListParse(Response response) throws Exception {
+        return pageListParse(Jsoup.parse(response.body().string(), response.request().url().toString()));
+    }
 
     @Override
-    public List<Page> pageListParse(Response response) throws Exception {
-        String html = response.body().string();
-        Document document = Jsoup.parse(html, getBaseUrl());
-        return pageListParse(document);
+    protected String imageUrlParse(Response response) throws Exception {
+        return imageUrlParse(Jsoup.parse(response.body().string(), response.request().url().toString()));
     }
 }
