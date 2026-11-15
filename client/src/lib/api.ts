@@ -9,7 +9,7 @@ export function getApiBaseUrl(): string {
 
   // Navegador/desktop: servidor opcional existente continua suportado.
   const stored = localStorage.getItem('omniyomi_server_url');
-  if (stored && stored.trim().length > 0) return stored.replace(/\\/$/, '');
+  if (stored && stored.trim().length > 0) return stored.replace(/\/$/, '');
 
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     if (window.location.port === '8888' || window.location.port === '4567') {
@@ -543,18 +543,12 @@ export const api = {
     }
     if (await checkIsNative()) {
       try {
-        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-        if (nat?.manga?.length > 0) return nat;
-        throw new Error(`Extensão "${sourceId}" não retornou resultados.`);
+        return await TachiyomiNative.getLatestManga({ sourceId, page });
       } catch (e: any) {
         throw new Error(`[${sourceId}] Falha ao buscar recentes: ${e.message}`);
       }
     }
-    try {
-      return await request<any>(`/sources/${sourceId}/latest?page=${page}`);
-    } catch {
-      throw new Error(`Fonte "${sourceId}" não disponível.`);
-    }
+    return request<any>(`/sources/${sourceId}/latest?page=${page}`);
   },
   searchSource: async (sourceId: string, q: string, page = 1) => {
     if (sourceId === 'mangadex') {
