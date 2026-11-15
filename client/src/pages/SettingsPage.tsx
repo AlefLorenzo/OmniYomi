@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle, Cpu, AlertCircle, CheckCircle2, Loader2, FlaskConical } from 'lucide-react';
-import { api, getApiBaseUrl, setApiBaseUrl } from '../lib/api';
+import { api, getApiBaseUrl, setApiBaseUrl, isCapacitorApp } from '../lib/api';
 import { TachiyomiNative, checkIsNative } from '../lib/nativeBridge';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
@@ -28,7 +28,7 @@ export function SettingsPage() {
   const [nativeSources, setNativeSources] = useState<any[]>([]);
   const [diagTesting, setDiagTesting] = useState<Record<string, 'idle'|'testing'|'ok'|'error'>>({});
   const [diagResults, setDiagResults] = useState<Record<string, string>>({});
-  const [isNativePlatform, setIsNativePlatform] = useState(false);
+  const [isNativePlatform, setIsNativePlatform] = useState(isCapacitorApp());
 
   useEffect(() => {
     loadData();
@@ -61,30 +61,33 @@ export function SettingsPage() {
 
   const loadData = async () => {
     setLoading(true);
+    const native = await checkIsNative();
+    setIsNativePlatform(native);
     try {
       const s = await api.getSettings();
       setSettings(s);
-      setServerConnected(true);
-    } catch (e: any) {
-      // Fallback settings if server is not reachable yet
+      setServerConnected(native ? null : true);
+    } catch {
       setSettings({
-        downloadPath: 'data/downloads',
+        downloadPath: 'OmniYomi/Downloads',
         concurrentDownloads: 2,
         autoDownloadNew: false,
-        readerMode: 'vertical_webtoon',
+        defaultReaderMode: 'vertical_webtoon',
         fitMode: 'fit_width',
         pageSpacing: 4,
         autoMarkReadPercent: 80,
       });
-      setServerConnected(false);
+      setServerConnected(native ? null : false);
     } finally {
       setLoading(false);
     }
 
-    try {
-      const st = await api.getFlareSolverrStatus();
-      setFlareStatus(st.message);
-    } catch {}
+    if (!native) {
+      try {
+        const st = await api.getFlareSolverrStatus();
+        setFlareStatus(st.message);
+      } catch {}
+    }
   };
 
   const handleTestServer = async () => {
@@ -165,7 +168,8 @@ export function SettingsPage() {
         <p className="text-sm text-gray-500 mt-0.5">Personalize o comportamento do OmniYomi</p>
       </div>
 
-      {/* Backend Server Configuration */}
+      {/* Backend é opcional no site/desktop e não existe no APK standalone. */}
+      {!isNativePlatform && (
       <section className="bg-[#1a1e29] border border-purple-500/30 rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
           <div className="flex items-center gap-2">
@@ -210,6 +214,7 @@ export function SettingsPage() {
           </p>
         </div>
       </section>
+      )}
 
       {/* Downloads */}
       <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
@@ -330,7 +335,8 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {/* Cloudflare / FlareSolverr */}
+      {/* FlareSolverr só é configurável no servidor/desktop. */}
+      {!isNativePlatform && (
       <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
           <div>
@@ -362,6 +368,7 @@ export function SettingsPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Atualizações do Aplicativo via GitHub */}
       <section className="bg-[#1a1e29] border border-purple-500/30 rounded-xl p-5 space-y-4">
@@ -485,7 +492,7 @@ export function SettingsPage() {
         </section>
       )}
 
-      {/* Server */}
+      {!isNativePlatform && (
       <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
         <h2 className="text-base font-semibold text-gray-200 border-b border-[#2a3040] pb-3">Servidor</h2>
         <div>
@@ -501,6 +508,7 @@ export function SettingsPage() {
           <p className="text-xs text-gray-600 mt-1">Reinicie o servidor para aplicar alterações de porta</p>
         </div>
       </section>
+      )}
 
       <div className="flex gap-3">
         <Button onClick={handleSave} loading={saving} size="lg">
