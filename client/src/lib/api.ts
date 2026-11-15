@@ -667,7 +667,10 @@ const DEFAULT_POPULAR_SOURCES = [
 ];
 
 export const api = {
-  health: () => request<{ status: string; version: string; app: string }>('/health'),
+  health: async () => {
+    if (await checkIsNative()) return { status: 'ok', version: '1.1.8', app: 'OmniYomi Android (standalone)' };
+    return request<{ status: string; version: string; app: string }>('/health');
+  },
 
   // Sources
   getSources: async () => {
@@ -826,12 +829,25 @@ export const api = {
       return { query: q, total: res.manga.length, entries: res.manga.map((m: any) => ({ canonical: m, sources: [m] })) };
     }
   },
-  getFlareSolverrStatus: () => request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status'),
+  getFlareSolverrStatus: async () => {
+    if (await checkIsNative()) return { available: false, message: 'FlareSolverr é um serviço externo opcional e não está disponível no modo Android independente.' };
+    return request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status');
+  },
 
   // Extensions & Repos
-  getAvailableExtensions: () => request<any[]>('/extensions/available'),
-  uninstallExtension: (id: string) => request<any>(`/extensions/${id}`, { method: 'DELETE' }),
+  getAvailableExtensions: async () => {
+    if (await checkIsNative()) {
+      const store = await api.getStoreExtensions();
+      return store.extensions || [];
+    }
+    return request<any[]>('/extensions/available');
+  },
+  uninstallExtension: async (id: string) => {
+    if (await checkIsNative()) return api.uninstallExtracted(id);
+    return request<any>(`/extensions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
   getRepos: async () => {
+    if (await checkIsNative()) return getLocalRepositories();
     try {
       const serverRepos = await request<any[]>('/extensions/repos');
       if (Array.isArray(serverRepos) && serverRepos.length > 0) return serverRepos;
@@ -1344,6 +1360,24 @@ export const api = {
     }
   },
   updateProgress: async (chapterId: string, page: number, totalPages: number, isRead: boolean) => {
+    if (await checkIsNative()) {
+      const hist = getLocalHistory();
+      const existing = hist.findIndex((h: any) => String(h.chapterId) === String(chapterId));
+      const entry = { chapterId, page, totalPages, isRead, readAt: new Date().toISOString() };
+      if (existing >= 0) hist[existing] = entry;
+      else hist.unshift(entry);
+      saveLocalHistory(hist.slice(0, 100));
+      const library = getLocalLibrary().map((manga: any) => ({
+        ...manga,
+        chapters: (manga.chapters || []).map((chapter: any) =>
+          String(chapter.id || chapter.url || chapter.sourceChapterId) === String(chapterId)
+            ? { ...chapter, lastPageRead: page, isRead }
+            : chapter
+        ),
+      }));
+      saveLocalLibrary(library);
+      return { success: true };
+    }
     try {
       return await request<any>(`/chapters/${chapterId}/progress`, { method: 'POST', body: JSON.stringify({ page, totalPages, isRead }) });
     } catch {
@@ -1479,6 +1513,12 @@ export const api = {
 
   // Library
   getLibrary: async (category?: string, search?: string) => {
+    if (await checkIsNative()) {
+      let lib = getLocalLibrary();
+      if (category && category !== 'all') lib = lib.filter((m: any) => m.categoryId === category);
+      if (search) lib = lib.filter((m: any) => m.title?.toLowerCase().includes(search.toLowerCase()));
+      return lib;
+    }
     try {
       const params = new URLSearchParams();
       if (category && category !== 'all') params.append('category', category);
@@ -1529,6 +1569,7 @@ export const api = {
 
   // History
   getHistory: async (limit = 50) => {
+    if (await checkIsNative()) return getLocalHistory().slice(0, limit);
     try {
       return await request<any[]>(`/history?limit=${limit}`);
     } catch {
@@ -1536,6 +1577,10 @@ export const api = {
     }
   },
   clearHistory: async () => {
+    if (await checkIsNative()) {
+      saveLocalHistory([]);
+      return { success: true };
+    }
     try {
       return await request<any>('/history', { method: 'DELETE' });
     } catch {
