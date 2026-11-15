@@ -418,6 +418,7 @@ function parseProtoSource(bytes: Uint8Array): any {
     language: protoText(protoFirst(fields, 3)),
     homeUrl: protoText(protoFirst(fields, 4)),
     mirrorUrls: protoStrings(fields, 5),
+    contentRating: Number(protoFirst(fields, 6)?.value ?? 0n),
     message: protoText(protoFirst(fields, 7)),
   };
 }
@@ -426,7 +427,8 @@ function parseProtoExtension(bytes: Uint8Array): any {
   const fields = readProtoFields(bytes);
   const resourceBytes = protoFirst(fields, 3)?.bytes;
   const resources = resourceBytes ? readProtoFields(resourceBytes) : [];
-  const sourceFields = fields.filter(field => field.number === 8 && field.bytes);
+  const sourceFields = fields.filter(field => field.number === 7 && field.bytes);
+  const sources = sourceFields.map(field => parseProtoSource(field.bytes!));
 
   return {
     name: protoText(protoFirst(fields, 1)),
@@ -438,43 +440,50 @@ function parseProtoExtension(bytes: Uint8Array): any {
     extensionLib: protoText(protoFirst(fields, 4)),
     versionCode: (protoFirst(fields, 5)?.value ?? 0n).toString(),
     versionName: protoText(protoFirst(fields, 6)),
-    contentWarning: Number(protoFirst(fields, 7)?.value ?? 0n),
-    sources: sourceFields.map(field => parseProtoSource(field.bytes!)),
+    // Enum ContentRating: SAFE=0, SUGGESTIVE=1, EROTICA=2, PORNOGRAPHIC=3.
+    contentWarning: sources.some((source: any) => source.contentRating >= 2) ? 3 : 0,
+    sources,
   };
 }
 
-function parseExtensionIndexProto(bytes: Uint8Array): { extensions: any[]; extensionListUrl?: string; name?: string } {
+function parseExtensionIndexProto(bytes: Uint8Array): { extensions: any[]; name?: string; signingKey?: string } {
   const fields = readProtoFields(bytes);
-  const name = protoText(protoFirst(fields, 1));
-  const extensionListField = protoFirst(fields, 101);
-  const extensionListUrl = protoText(protoFirst(fields, 102));
-
-  if (!extensionListField?.bytes) {
-    return { extensions: [], extensionListUrl, name };
-  }
-
-  const listFields = readProtoFields(extensionListField.bytes);
-  const extensions = listFields
-    .filter(field => field.number === 1 && field.bytes)
+  const extensions = fields
+    .filter(field => field.number === 5 && field.wireType === 2 && field.bytes)
     .map(field => parseProtoExtension(field.bytes!));
 
-  return { extensions, name };
+  return {
+    name: protoText(protoFirst(fields, 1)),
+    signingKey: protoText(protoFirst(fields, 3)),
+    extensions,
+  };
+}
+
+async function decompressExtensionIndex(bytes: Uint8Array): Promise<Uint8Array> {
+  // Mihon/Keiyoushi publica index.pb comprimido com gzip.
+  const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (!isGzip) return bytes;
+
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error(
+      'Este Android WebView não oferece descompactação gzip nativa. Atualize o Android System WebView para ler index.pb.'
+    );
+  }
+
+  const compressed = new Blob([bytes]).stream();
+  const decompressed = compressed.pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(decompressed).arrayBuffer());
 }
 
 async function parseExtensionRepositoryResponse(url: string, response: Response): Promise<any[]> {
   if (url.toLowerCase().endsWith('.pb')) {
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const downloaded = new Uint8Array(await response.arrayBuffer());
+    const bytes = await decompressExtensionIndex(downloaded);
     const parsed = parseExtensionIndexProto(bytes);
     if (parsed.extensions.length > 0) return parsed.extensions;
-
-    if (parsed.extensionListUrl) {
-      const nestedResponse = await fetch(parsed.extensionListUrl, { cache: 'default' });
-      if (!nestedResponse.ok) {
-        throw new Error(`Não foi possível carregar a lista de extensões: HTTP ${nestedResponse.status}`);
-      }
-      return parseExtensionRepositoryResponse(parsed.extensionListUrl, nestedResponse);
-    }
-    throw new Error('O índice Protobuf não contém uma lista de extensões.');
+    throw new Error(
+      'O índice Protobuf foi lido, mas não contém extensões no campo esperado (Index.extensions).'
+    );
   }
 
   const data = await response.json();
