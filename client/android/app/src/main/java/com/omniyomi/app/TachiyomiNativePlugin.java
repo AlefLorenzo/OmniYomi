@@ -12,6 +12,9 @@ import eu.kanade.tachiyomi.source.Source;
 import eu.kanade.tachiyomi.source.ConfigurableSource;
 import eu.kanade.tachiyomi.source.model.*;
 
+import java.util.Iterator;
+import java.util.Map;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -474,7 +477,7 @@ public class TachiyomiNativePlugin extends Plugin {
     @PluginMethod
     public void saveSourceConfiguration(PluginCall call) {
         String sourceId = call.getString("sourceId");
-        JSObject config = call.getData("configuration");
+        JSObject config = call.getObject("configuration");
         if (sourceId == null || config == null) {
             call.reject("sourceId e configuration são obrigatórios");
             return;
@@ -496,7 +499,9 @@ public class TachiyomiNativePlugin extends Plugin {
         android.content.SharedPreferences.Editor editor = prefs.edit();
 
         // Salvar todas as chaves do objeto de configuração
-        for (String key : config.keys()) {
+        Iterator<String> keys = config.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
             String value = config.getString(key);
             if (value != null) {
                 editor.putString(key, value);
