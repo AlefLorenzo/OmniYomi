@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle } from 'lucide-react';
+import { Save, FolderOpen, RefreshCw, ShieldCheck, ShieldAlert, Server, Wifi, WifiOff, CheckCircle, Download, ArrowUpCircle, Cpu, AlertCircle, CheckCircle2, Loader2, FlaskConical } from 'lucide-react';
 import { api, getApiBaseUrl, setApiBaseUrl } from '../lib/api';
+import { TachiyomiNative, checkIsNative } from '../lib/nativeBridge';
 import { Button, Input, Select, Loader } from '../components/ui/index';
 import { useToast } from '../components/ui/ToastProvider';
 import { checkForUpdate, CURRENT_VERSION, type ReleaseInfo } from '../lib/updater';
@@ -23,9 +24,40 @@ export function SettingsPage() {
   const [updateAvailable, setUpdateAvailable] = useState<ReleaseInfo | null>(null);
   const [updateChecked, setUpdateChecked] = useState(false);
 
+  // Diagnóstico de extensões nativas
+  const [nativeSources, setNativeSources] = useState<any[]>([]);
+  const [diagTesting, setDiagTesting] = useState<Record<string, 'idle'|'testing'|'ok'|'error'>>({});
+  const [diagResults, setDiagResults] = useState<Record<string, string>>({});
+  const [isNativePlatform, setIsNativePlatform] = useState(false);
+
   useEffect(() => {
     loadData();
+    loadNativeSources();
   }, []);
+
+  const loadNativeSources = async () => {
+    const native = await checkIsNative();
+    setIsNativePlatform(native);
+    if (!native) return;
+    try {
+      const res = await TachiyomiNative.getInstalledSources();
+      setNativeSources(res?.sources || []);
+    } catch {}
+  };
+
+  const testNativeSource = async (sourceId: string, name: string) => {
+    setDiagTesting(prev => ({ ...prev, [sourceId]: 'testing' }));
+    setDiagResults(prev => ({ ...prev, [sourceId]: 'Testando...' }));
+    try {
+      const res = await TachiyomiNative.getPopularManga({ sourceId, page: 1 });
+      const count = res?.manga?.length || 0;
+      setDiagTesting(prev => ({ ...prev, [sourceId]: 'ok' }));
+      setDiagResults(prev => ({ ...prev, [sourceId]: `✅ Catálogo OK — ${count} obra(s) retornadas` }));
+    } catch (e: any) {
+      setDiagTesting(prev => ({ ...prev, [sourceId]: 'error' }));
+      setDiagResults(prev => ({ ...prev, [sourceId]: `❌ Falha: ${e.message}` }));
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -386,6 +418,72 @@ export function SettingsPage() {
           </div>
         )}
       </section>
+
+      {/* Diagnóstico de Extensões — apenas no Android nativo */}
+      {isNativePlatform && (
+        <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-[#2a3040] pb-3">
+            <h2 className="text-base font-semibold text-gray-200 flex items-center gap-2">
+              <Cpu size={16} className="text-purple-400" /> Diagnóstico de Extensões
+            </h2>
+            <button
+              onClick={loadNativeSources}
+              className="text-xs text-gray-400 hover:text-purple-400 flex items-center gap-1"
+            >
+              <RefreshCw size={12} /> Recarregar
+            </button>
+          </div>
+
+          {nativeSources.length === 0 ? (
+            <div className="bg-[#131720] border border-[#2a3040] p-3 rounded-lg text-xs text-yellow-400 flex items-center gap-2">
+              <AlertCircle size={14} />
+              <span>Nenhuma extensão carregada nativamente. Instale extensões na aba <strong>Fontes</strong>.</span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">
+                {nativeSources.length} extensão(ões) carregada(s) no motor nativo Android.
+                Use <strong>Testar</strong> para verificar se cada uma consulta sua fonte corretamente, sem servidor.
+              </p>
+              {nativeSources.map((src: any) => {
+                const state = diagTesting[src.id] || 'idle';
+                return (
+                  <div key={src.id} className="bg-[#131720] border border-[#2a3040] rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-white">{src.name}</p>
+                        <p className="text-xs text-gray-500">ID: {src.id} · Idioma: {src.lang || 'all'}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {state === 'ok' && <CheckCircle2 size={14} className="text-green-400" />}
+                        {state === 'error' && <AlertCircle size={14} className="text-red-400" />}
+                        <button
+                          onClick={() => testNativeSource(src.id, src.name)}
+                          disabled={state === 'testing'}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-700/60 hover:bg-purple-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+                        >
+                          {state === 'testing'
+                            ? <><Loader2 size={11} className="animate-spin" /> Testando...</>
+                            : <><FlaskConical size={11} /> Testar</>}
+                        </button>
+                      </div>
+                    </div>
+                    {diagResults[src.id] && (
+                      <p className={`text-xs px-2 py-1 rounded ${
+                        state === 'ok' ? 'text-green-400 bg-green-900/20' :
+                        state === 'error' ? 'text-red-400 bg-red-900/20' :
+                        'text-gray-400 bg-[#0d111a]'
+                      }`}>
+                        {diagResults[src.id]}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Server */}
       <section className="bg-[#1a1e29] border border-[#2a3040] rounded-xl p-5 space-y-4">
