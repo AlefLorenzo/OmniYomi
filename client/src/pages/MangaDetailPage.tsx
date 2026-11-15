@@ -88,7 +88,7 @@ export function MangaDetailPage() {
   async function handleRefresh() {
     setChaptersLoading(true);
     try {
-      const res = await api.refreshManga(mangaId);
+      const res = await api.refreshManga(mangaId, currentSourceId);
       setChapters(res.chapters || await api.getChapters(mangaId, currentSourceId));
       show('Capítulos atualizados!', 'success');
     } catch (e: any) {
