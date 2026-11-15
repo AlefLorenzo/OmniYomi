@@ -1367,22 +1367,16 @@ export const api = {
       return { totalBytes: 0, formatted: '0 MB' };
     }
   },
-  enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, imageUrls?: string[]) => {
+  enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, _imageUrls?: string[]) => {
     if (await checkIsNative()) {
       if (!sourceId || !mangaId) {
         throw new Error('sourceId e mangaId são necessários para baixar capítulos no aparelho.');
       }
       try {
-        let urls = imageUrls;
-        if (!urls || urls.length === 0) {
-          const pagesRes = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
-          urls = pagesRes.pages?.map((page: any) => page.url) || [];
-        }
-        if (!urls || urls.length === 0) throw new Error('A fonte não retornou páginas para este capítulo.');
-        const result = await TachiyomiNative.downloadChapter({
-          sourceId, mangaId, chapterId, imageUrls: urls,
+        const result = await TachiyomiNative.downloadChapterFromSource({
+          sourceId, mangaId, chapterId,
         });
-        if (!result?.success) throw new Error('Nenhuma página foi baixada.');
+        if (!result?.success) throw new Error('O download não foi concluído.');
         return result;
       } catch (error: any) {
         throw new Error(`Falha no download local: ${error?.message || error}`);
