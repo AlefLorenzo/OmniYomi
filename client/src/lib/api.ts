@@ -795,7 +795,7 @@ export const api = {
       }
 
       const invalidSources = nativeSources.filter((s: any) =>
-        s?.id === undefined || s?.id === null || !/^\\d+$/.test(String(s.id))
+        s?.id === undefined || s?.id === null || !/^[0-9]+$/.test(String(s.id))
       );
       if (invalidSources.length > 0) {
         throw new Error(
