@@ -10,35 +10,31 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
 /**
- * Executes the JVM ABI generated for Kotlin suspend methods on extension-lib 1.6.
+ * Calls the real Kotlin suspend API exposed by extension-lib 1.6.
  *
- * The extension manager calls these from its worker executor. A suspend implementation
- * may either return immediately or resume the continuation asynchronously.
+ * Java callers enter this bridge from the extension worker executor; runBlocking
+ * keeps that boundary synchronous while the source implementation suspends
+ * normally inside a coroutine context.
  */
 object ExtensionSuspendBridge {
-    private suspend fun <T> invokeAbi(block: (Continuation<T>) -> Any?): T =
-        suspendCoroutineUninterceptedOrReturn { continuation -> block(continuation) }
-
     @JvmStatic
     fun popular(source: CatalogueSource, page: Int): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi<MangasPage> { continuation -> source.getPopularManga(page, continuation) }
+            source.getPopularManga(page)
         }
 
     @JvmStatic
     fun latest(source: CatalogueSource, page: Int): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi<MangasPage> { continuation -> source.getLatestUpdates(page, continuation) }
+            source.getLatestUpdates(page)
         }
 
     @JvmStatic
     fun search(source: CatalogueSource, page: Int, query: String, filters: FilterList): MangasPage =
         runBlocking(Dispatchers.IO) {
-            invokeAbi<MangasPage> { continuation -> source.getSearchManga(page, query, filters, continuation) }
+            source.getSearchManga(page, query, filters)
         }
 
     @JvmStatic
@@ -49,14 +45,12 @@ object ExtensionSuspendBridge {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = runBlocking(Dispatchers.IO) {
-        invokeAbi<SMangaUpdate> { continuation ->
-            source.getMangaUpdate(manga, chapters, fetchDetails, fetchChapters, continuation)
-        }
+        source.getMangaUpdate(manga, chapters, fetchDetails, fetchChapters)
     }
 
     @JvmStatic
     fun pages(source: Source, chapter: SChapter): List<Page> =
         runBlocking(Dispatchers.IO) {
-            invokeAbi<List<Page>> { continuation -> source.getPageList(chapter, continuation) }
+            source.getPageList(chapter)
         }
 }
