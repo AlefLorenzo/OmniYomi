@@ -23,7 +23,7 @@ object MihonRuntimeBootstrap {
         if (initialized) return
         Injekt.addSingleton(fullType<Application>(), application)
         Injekt.addSingleton(fullType<Context>(), application)
-        Injekt.addSingletonFactory(fullType<NetworkHelper>()) { NetworkHelper() }
+        Injekt.addSingletonFactory(fullType<NetworkHelper>()) { NetworkHelper(application) }
         Injekt.addSingletonFactory(fullType<JavaScriptEngine>()) { JavaScriptEngine(application) }
         Injekt.addSingletonFactory(fullType<Json>()) {
             Json {
