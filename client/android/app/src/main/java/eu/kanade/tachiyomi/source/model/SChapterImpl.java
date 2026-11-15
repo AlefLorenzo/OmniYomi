@@ -1,11 +1,15 @@
 package eu.kanade.tachiyomi.source.model;
 
+import java.util.Collections;
+import kotlinx.serialization.json.JsonObject;
+
 public class SChapterImpl implements SChapter {
     private String url = "";
     private String name = "";
     private long date_upload = 0;
     private float chapter_number = -1;
     private String scanlator = null;
+    private JsonObject memo = new JsonObject(Collections.emptyMap());
 
     @Override public String getUrl() { return url; }
     @Override public void setUrl(String url) { this.url = url; }
@@ -17,4 +21,8 @@ public class SChapterImpl implements SChapter {
     @Override public void setChapter_number(float chapter_number) { this.chapter_number = chapter_number; }
     @Override public String getScanlator() { return scanlator; }
     @Override public void setScanlator(String scanlator) { this.scanlator = scanlator; }
+    @Override public JsonObject getMemo() { return memo; }
+    @Override public void setMemo(JsonObject memo) {
+        this.memo = memo == null ? new JsonObject(Collections.emptyMap()) : memo;
+    }
 }
