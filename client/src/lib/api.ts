@@ -925,39 +925,115 @@ export const api = {
     }
   },
   refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
-  setInLibrary: async (id: string, inLibrary: boolean, categoryId?: string) => {
-    try {
-      return await request<any>(`/manga/${id}/library`, { method: 'POST', body: JSON.stringify({ inLibrary, categoryId }) });
-    } catch {
-      let lib = getLocalLibrary();
-      if (inLibrary) {
-        if (!lib.some((m: any) => m.id === id)) {
-          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
-          lib.push({ ...details, inLibrary: true, isFavorite: true, categoryId });
-        }
-      } else {
-        lib = lib.filter((m: any) => m.id !== id);
+  setInLibrary: async (
+    id: string,
+    inLibrary: boolean,
+    categoryId?: string,
+    mangaData?: any,
+  ) => {
+    const isNative = await checkIsNative();
+    if (!isNative) {
+      try {
+        return await request<any>(`/manga/${encodeURIComponent(id)}/library`, {
+          method: 'POST',
+          body: JSON.stringify({ inLibrary, categoryId }),
+        });
+      } catch {
+        // O modo web sem backend também pode usar a biblioteca local.
       }
-      saveLocalLibrary(lib);
-      return { inLibrary, isFavorite: inLibrary };
     }
+
+    const lib = getLocalLibrary();
+    const index = lib.findIndex((m: any) => String(m.id) === String(id));
+
+    if (!inLibrary) {
+      const next = lib.filter((m: any) => String(m.id) !== String(id));
+      saveLocalLibrary(next);
+      return { inLibrary: false, isFavorite: false };
+    }
+
+    let details = mangaData || (index >= 0 ? lib[index] : null);
+    if (!details) {
+      if (!isNative) {
+        details = await getMangaDexDetails(id);
+      } else {
+        throw new Error(
+          'Não foi possível salvar esta obra: os dados da fonte não foram enviados para a biblioteca.'
+        );
+      }
+    }
+
+    const record = {
+      ...details,
+      id,
+      sourceId: details.sourceId || (id.includes('mangadex') ? 'mangadex' : undefined),
+      sourceMangaId: details.sourceMangaId || details.url || id,
+      chapters: Array.isArray(details.chapters) ? details.chapters : [],
+      inLibrary: true,
+      isFavorite: Boolean(details.isFavorite || categoryId === 'favorites'),
+      categoryId: categoryId || details.categoryId || 'default',
+      savedAt: details.savedAt || new Date().toISOString(),
+    };
+
+    if (index >= 0) lib[index] = { ...lib[index], ...record };
+    else lib.unshift(record);
+    saveLocalLibrary(lib);
+    return { inLibrary: true, isFavorite: record.isFavorite };
   },
-  toggleFavorite: async (id: string, isFavorite: boolean) => {
-    try {
-      return await request<any>(`/manga/${id}/favorite`, { method: 'POST', body: JSON.stringify({ isFavorite }) });
-    } catch {
-      let lib = getLocalLibrary();
-      if (isFavorite) {
-        if (!lib.some((m: any) => m.id === id)) {
-          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
-          lib.push({ ...details, inLibrary: true, isFavorite: true });
-        }
+  toggleFavorite: async (id: string, isFavorite: boolean, mangaData?: any) => {
+    const isNative = await checkIsNative();
+    if (!isNative) {
+      try {
+        return await request<any>(`/manga/${encodeURIComponent(id)}/favorite`, {
+          method: 'POST',
+          body: JSON.stringify({ isFavorite }),
+        });
+      } catch {
+        // Continua com persistência local se o backend web não estiver disponível.
+      }
+    }
+
+    const lib = getLocalLibrary();
+    const index = lib.findIndex((m: any) => String(m.id) === String(id));
+    const existing = index >= 0 ? lib[index] : null;
+
+    if (!isFavorite) {
+      if (!existing) return { isFavorite: false, inLibrary: false };
+      if (existing.wasInLibraryBeforeFavorite) {
+        const updated = { ...existing, isFavorite: false, inLibrary: true, categoryId: 'default' };
+        delete updated.wasInLibraryBeforeFavorite;
+        lib[index] = updated;
       } else {
-        lib = lib.filter((m: any) => m.id !== id);
+        lib.splice(index, 1);
       }
       saveLocalLibrary(lib);
-      return { isFavorite, inLibrary: isFavorite };
+      return { isFavorite: false, inLibrary: Boolean(existing.wasInLibraryBeforeFavorite) };
     }
+
+    let details = mangaData || existing;
+    if (!details) {
+      if (!isNative) details = await getMangaDexDetails(id);
+      else throw new Error('Não foi possível favoritar: os dados da obra não foram enviados.');
+    }
+
+    const wasInLibraryBeforeFavorite = existing
+      ? (existing.isFavorite ? Boolean(existing.wasInLibraryBeforeFavorite) : Boolean(existing.inLibrary))
+      : false;
+    const record = {
+      ...details,
+      id,
+      sourceMangaId: details.sourceMangaId || details.url || id,
+      chapters: Array.isArray(details.chapters) ? details.chapters : [],
+      inLibrary: true,
+      isFavorite: true,
+      categoryId: existing?.categoryId && existing.categoryId !== 'favorites' ? existing.categoryId : 'favorites',
+      wasInLibraryBeforeFavorite,
+      savedAt: details.savedAt || new Date().toISOString(),
+    };
+    if (index >= 0) lib[index] = { ...existing, ...record };
+    else lib.unshift(record);
+    saveLocalLibrary(lib);
+    return { isFavorite: true, inLibrary: true };
   },
   setCategory: (id: string, categoryId: string) =>
     request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
