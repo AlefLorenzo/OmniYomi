@@ -955,6 +955,13 @@ export const api = {
     // Android: uma falha no runtime nativo NÃO pode virar uma instalação simulada.
     // Só registramos fontes retornadas pelo ExtensionManager após carregamento real.
     if (await checkIsNative()) {
+      const declaredLib = String(extData?.extensionLib || '').trim();
+      if (declaredLib && !declaredLib.startsWith('1.4')) {
+        throw new Error(
+          `A extensão ${pkg} exige TachiyomiX ${declaredLib}. Esta versão do OmniYomi só executa a ABI legada 1.4; a extensão não será marcada como instalada.`
+        );
+      }
+
       const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
       const nativeSources = Array.isArray(res?.sources) ? res.sources : [];
 
