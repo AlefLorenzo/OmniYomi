@@ -49,6 +49,12 @@ public class ExtensionManager {
 
     private ExtensionManager(Context context) {
         this.context = context;
+        ExtensionRuntimeContext.initialize(context);
+        if (context instanceof android.app.Application) {
+            MihonRuntimeBootstrap.INSTANCE.initialize((android.app.Application) context);
+        } else {
+            throw new IllegalStateException("O runtime Android de extensões precisa de um Application context.");
+        }
         this.extensionsDir = new File(context.getFilesDir(), "extensions");
         if (!extensionsDir.exists()) extensionsDir.mkdirs();
 
