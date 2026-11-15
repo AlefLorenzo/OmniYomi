@@ -339,6 +339,52 @@ public class TachiyomiNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getDownloadedChapters(PluginCall call) {
+        JSArray arr = new JSArray();
+        for (java.util.Map<String, Object> item : manager.getDownloadedChapters()) {
+            JSObject entry = new JSObject();
+            for (java.util.Map.Entry<String, Object> field : item.entrySet()) {
+                entry.put(field.getKey(), field.getValue());
+            }
+            arr.put(entry);
+        }
+        JSObject ret = new JSObject();
+        ret.put("downloads", arr);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getStorageUsage(PluginCall call) {
+        JSObject ret = new JSObject();
+        long bytes = manager.getDownloadsStorageBytes();
+        ret.put("totalBytes", bytes);
+        ret.put("formatted", String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void deleteOfflineChapter(PluginCall call) {
+        String chapterId = call.getString("chapterId");
+        if (chapterId == null) {
+            call.reject("chapterId é obrigatório");
+            return;
+        }
+        boolean deleted = manager.deleteOfflineChapterById(chapterId);
+        JSObject ret = new JSObject();
+        ret.put("success", deleted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void deleteAllOfflineDownloads(PluginCall call) {
+        int deleted = manager.deleteAllOfflineDownloads();
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("deletedFolders", deleted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void getOfflinePages(PluginCall call) {
         String sourceId = call.getString("sourceId");
         String mangaId = call.getString("mangaId");
