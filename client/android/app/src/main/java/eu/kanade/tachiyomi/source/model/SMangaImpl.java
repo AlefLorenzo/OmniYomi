@@ -1,5 +1,8 @@
 package eu.kanade.tachiyomi.source.model;
 
+import java.util.Collections;
+import kotlinx.serialization.json.JsonObject;
+
 public class SMangaImpl implements SManga {
     private String url = "";
     private String title = "";
@@ -9,7 +12,9 @@ public class SMangaImpl implements SManga {
     private String genre = null;
     private int status = UNKNOWN;
     private String thumbnail_url = null;
+    private UpdateStrategy updateStrategy = UpdateStrategy.ALWAYS_UPDATE;
     private boolean initialized = false;
+    private JsonObject memo = new JsonObject(Collections.emptyMap());
 
     @Override public String getUrl() { return url; }
     @Override public void setUrl(String url) { this.url = url; }
@@ -27,6 +32,14 @@ public class SMangaImpl implements SManga {
     @Override public void setStatus(int status) { this.status = status; }
     @Override public String getThumbnail_url() { return thumbnail_url; }
     @Override public void setThumbnail_url(String thumbnail_url) { this.thumbnail_url = thumbnail_url; }
+    @Override public UpdateStrategy getUpdate_strategy() { return updateStrategy; }
+    @Override public void setUpdate_strategy(UpdateStrategy strategy) {
+        this.updateStrategy = strategy == null ? UpdateStrategy.ALWAYS_UPDATE : strategy;
+    }
     @Override public boolean getInitialized() { return initialized; }
     @Override public void setInitialized(boolean initialized) { this.initialized = initialized; }
+    @Override public JsonObject getMemo() { return memo; }
+    @Override public void setMemo(JsonObject memo) {
+        this.memo = memo == null ? new JsonObject(Collections.emptyMap()) : memo;
+    }
 }
