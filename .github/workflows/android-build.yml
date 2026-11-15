@@ -71,7 +71,7 @@ jobs:
       - name: Sincronizar Capacitor Android
         run: |
           cd client
-          npx cap sync android
+          npx cap sync android || npx cap copy android
 
       - name: Configurar versionamento no build.gradle
         run: |
