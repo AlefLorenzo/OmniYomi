@@ -2,6 +2,12 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
+    kotlinOptions {
+        jvmTarget = JavaVersion.current().majorVersion
+    }
+}
+
+android {
     namespace = "com.omniyomi.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
