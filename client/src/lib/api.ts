@@ -1424,25 +1424,39 @@ export const api = {
     await Promise.allSettled(repos.map(async (repo: any) => {
       try {
         const url = normalizeRepoUrl(repo.url);
-        const res = await fetch(url, { cache: 'default' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const exts: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const exts = await parseExtensionRepositoryResponse(url, res);
+
         for (const ext of exts) {
           const pkg = ext.packageName || ext.pkg || '';
-          const local = installed.find((s: any) => s.pkg === pkg);
-          if (local && ext.versionName && ext.versionName !== local.version) {
+          const local = installed.find((source: any) => source.pkg === pkg);
+          if (!local) continue;
+
+          const remoteCode = String(ext.versionCode || '');
+          const localCode = String(local.versionCode || '');
+          const remoteVersion = String(ext.versionName || ext.version || '');
+          const hasNewerCode = remoteCode && localCode
+            ? BigInt(remoteCode) > BigInt(localCode)
+            : Boolean(remoteVersion && remoteVersion !== String(local.version || ''));
+
+          if (hasNewerCode) {
             updates.push({
               pkg,
               name: ext.name || local.name,
               currentVersion: local.version,
-              newVersion: ext.versionName,
+              newVersion: remoteVersion || 'Atualização disponível',
+              currentVersionCode: localCode,
+              newVersionCode: remoteCode,
+              extensionLib: ext.extensionLib || '',
               apkUrl: ext.resources?.apkUrl || (ext.apk ? `${url.substring(0, url.lastIndexOf('/'))}/apk/${ext.apk}` : ''),
               repoName: repo.name,
             });
           }
         }
-      } catch {}
+      } catch (error: any) {
+        errors.push?.(error);
+      }
     }));
 
     return { updates, totalUpdates: updates.length };
