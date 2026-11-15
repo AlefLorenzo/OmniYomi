@@ -4,10 +4,12 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.util.Log;
 
 import dalvik.system.PathClassLoader;
 import eu.kanade.tachiyomi.source.CatalogueSource;
+import eu.kanade.tachiyomi.source.online.HttpSource;
 import eu.kanade.tachiyomi.source.Source;
 import eu.kanade.tachiyomi.source.SourceFactory;
 import eu.kanade.tachiyomi.source.model.*;
@@ -59,123 +61,192 @@ public class ExtensionManager {
     }
 
     public synchronized void loadInstalledExtensions() {
+        // Reconstruir o mapa a partir dos APKs privados persistidos no dispositivo.
+        loadedSources.clear();
+        sourceToPkg.clear();
+
         File[] apks = extensionsDir.listFiles((dir, name) -> name.endsWith(".apk"));
         if (apks == null) return;
+        Arrays.sort(apks, Comparator.comparing(File::getName));
         for (File apk : apks) {
             try {
-                loadExtensionApk(apk);
+                String expectedPackage = apk.getName().substring(0, apk.getName().length() - 4);
+                loadExtensionApk(apk, expectedPackage);
             } catch (Exception e) {
-                Log.w(TAG, "Falha ao recarregar APK: " + apk.getName() + " — " + e.getMessage());
+                Log.e(TAG, "Extensão não carregada: " + apk.getName() + " — " + e.getMessage(), e);
             }
         }
+        Log.i(TAG, "Varredura concluída: " + loadedSources.size() + " fontes carregadas.");
     }
 
     /**
-     * Carrega um APK de extensão e instancia as fontes com PathClassLoader.
-     * Este é o ponto central de execução nativa sem servidor.
-     *
-     * PROBLEMA CRÍTICO CORRIGIDO:
-     * - O APK da extensão usa classes do Tachiyomi como interfaces.
-     * - O PathClassLoader deve herdar do ClassLoader do OmniYomi (parent = context.getClassLoader())
-     *   para que as nossas interfaces (Source, CatalogueSource, etc.) sejam resolvidas corretamente.
-     * - Sem isso, o cast (Source) lança ClassCastException mesmo que o nome seja igual.
+     * Compatibilidade com o formato clássico: uma extensão pode declarar uma classe
+     * Source ou uma classe gerada que implementa SourceFactory. O campo
+     * tachiyomi.extension.class também pode conter várias classes separadas por ';'.
      */
     public synchronized List<Source> loadExtensionApk(File apkFile) throws Exception {
+        return loadExtensionApk(apkFile, null);
+    }
+
+    public synchronized List<Source> loadExtensionApk(File apkFile, String expectedPackageName) throws Exception {
+        if (apkFile == null || !apkFile.isFile() || apkFile.length() < 4) {
+            throw new IllegalStateException("Arquivo APK inexistente ou vazio.");
+        }
+
         PackageManager pm = context.getPackageManager();
-
-        // GET_META_DATA garante que tachiyomi.extension.class seja lido do manifest
-        PackageInfo packageInfo = pm.getPackageArchiveInfo(
-            apkFile.getAbsolutePath(),
-            PackageManager.GET_META_DATA
-        );
-
-        if (packageInfo == null || packageInfo.applicationInfo == null) {
-            throw new IllegalStateException("APK inválido ou corrompido: " + apkFile.getName());
+        int flags = PackageManager.GET_META_DATA | PackageManager.GET_CONFIGURATIONS;
+        PackageInfo packageInfo = pm.getPackageArchiveInfo(apkFile.getAbsolutePath(), flags);
+        if (packageInfo == null || packageInfo.applicationInfo == null || packageInfo.packageName == null) {
+            throw new IllegalStateException("APK inválido ou sem metadados Android: " + apkFile.getName());
+        }
+        if (expectedPackageName != null && !expectedPackageName.equals(packageInfo.packageName)) {
+            throw new IllegalStateException(
+                "Package name divergente. Esperado: " + expectedPackageName
+                + "; APK contém: " + packageInfo.packageName
+            );
         }
 
         ApplicationInfo appInfo = packageInfo.applicationInfo;
         appInfo.sourceDir = apkFile.getAbsolutePath();
         appInfo.publicSourceDir = apkFile.getAbsolutePath();
-
-        // O parent ClassLoader DEVE ser o do nosso app para resolver as interfaces Tachiyomi
-        PathClassLoader classLoader = new PathClassLoader(
-            apkFile.getAbsolutePath(),
-            context.getClassLoader()
-        );
-
         android.os.Bundle meta = appInfo.metaData;
-        String className = meta != null ? meta.getString("tachiyomi.extension.class") : null;
-        String factoryClass = meta != null ? meta.getString("tachiyomi.extension.factory") : null;
+        if (meta == null) {
+            throw new IllegalStateException("O manifesto do APK não contém metadados de extensão.");
+        }
 
+        // Esta build contém a ABI legada Tachiyomi 1.4 (interfaces RxJava).
+        // TachiyomiX 1.6 mudou Source para métodos suspend/coroutines e modelos Kotlin.
+        // Não marcar essas extensões como instaladas: elas exigem o runtime 1.6 completo.
+        String extensionLib = meta.getString("tachiyomix.extensionLib");
+        if (extensionLib != null && !extensionLib.trim().isEmpty()
+            && !extensionLib.trim().startsWith("1.4")) {
+            throw new IllegalStateException(
+                "API de extensão incompatível: este APK declara TachiyomiX "
+                + extensionLib + ", mas esta versão do OmniYomi só implementa a ABI legada 1.4. "
+                + "A extensão não foi registrada como instalada."
+            );
+        }
+
+        String classMetadata = meta.getString("tachiyomi.extension.class");
+        String factoryMetadata = meta.getString("tachiyomi.extension.factory");
+
+        List<String> classNames = new ArrayList<>();
+        if (classMetadata != null) {
+            for (String candidate : classMetadata.split(";")) {
+                String name = candidate.trim();
+                if (!name.isEmpty() && !classNames.contains(name)) classNames.add(name);
+            }
+        }
+        if (factoryMetadata != null && !factoryMetadata.trim().isEmpty()
+            && !classNames.contains(factoryMetadata.trim())) {
+            classNames.add(factoryMetadata.trim());
+        }
+        if (classNames.isEmpty()) {
+            throw new IllegalStateException(
+                "APK sem tachiyomi.extension.class ou tachiyomi.extension.factory. "
+                + "Não é um pacote de extensão reconhecido."
+            );
+        }
+
+        ClassLoader classLoader = createExtensionClassLoader(apkFile.getAbsolutePath());
         List<Source> results = new ArrayList<>();
+        Set<String> resultIds = new HashSet<>();
 
-        if (className != null && !className.isEmpty()) {
-            // Suporte a nomes relativos ao pacote (ex: ".SomeSource")
-            if (className.startsWith(".")) {
-                className = packageInfo.packageName + className;
-            }
+        for (String declaredName : classNames) {
+            String className = declaredName.startsWith(".")
+                ? packageInfo.packageName + declaredName
+                : declaredName;
+
             try {
-                Class<?> clazz = classLoader.loadClass(className);
-                Object obj = clazz.getDeclaredConstructor().newInstance();
-                if (obj instanceof Source) {
-                    Source source = (Source) obj;
-                    String sid = String.valueOf(source.getId());
-                    loadedSources.put(sid, source);
-                    sourceToPkg.put(sid, packageInfo.packageName);
-                    results.add(source);
-                    Log.i(TAG, "Fonte carregada: " + source.getName()
-                        + " id=" + sid + " lang=" + source.getLang()
-                        + " pkg=" + packageInfo.packageName);
-                } else {
-                    Log.w(TAG, "Classe " + className + " não implementa Source");
-                }
-            } catch (ClassNotFoundException e) {
-                Log.e(TAG, "Classe não encontrada no APK: " + className, e);
-                throw new IllegalStateException("Extensão incompatível: classe " + className + " não encontrada no APK.");
-            } catch (ClassCastException e) {
-                Log.e(TAG, "ClassCastException ao carregar " + className, e);
-                throw new IllegalStateException("Extensão incompatível com esta versão do OmniYomi: " + className);
-            }
-        } else if (factoryClass != null && !factoryClass.isEmpty()) {
-            if (factoryClass.startsWith(".")) {
-                factoryClass = packageInfo.packageName + factoryClass;
-            }
-            try {
-                Class<?> clazz = classLoader.loadClass(factoryClass);
-                Object obj = clazz.getDeclaredConstructor().newInstance();
-                if (obj instanceof SourceFactory) {
-                    SourceFactory factory = (SourceFactory) obj;
-                    List<Source> sources = factory.createSources();
-                    for (Source s : sources) {
-                        String sid = String.valueOf(s.getId());
-                        loadedSources.put(sid, s);
-                        sourceToPkg.put(sid, packageInfo.packageName);
-                        results.add(s);
-                        Log.i(TAG, "Fonte (Factory): " + s.getName()
-                            + " id=" + sid + " lang=" + s.getLang());
+                Class<?> clazz = Class.forName(className, false, classLoader);
+                Object instance = clazz.getDeclaredConstructor().newInstance();
+
+                if (instance instanceof Source) {
+                    addLoadedSource((Source) instance, packageInfo.packageName, results, resultIds);
+                } else if (instance instanceof SourceFactory) {
+                    List<Source> produced = ((SourceFactory) instance).createSources();
+                    if (produced == null || produced.isEmpty()) {
+                        throw new IllegalStateException("SourceFactory não retornou nenhuma fonte: " + className);
+                    }
+                    for (Source source : produced) {
+                        addLoadedSource(source, packageInfo.packageName, results, resultIds);
                     }
                 } else {
-                    Log.w(TAG, "Classe factory " + factoryClass + " não implementa SourceFactory");
+                    throw new IllegalStateException(
+                        "A classe " + className + " não implementa Source nem SourceFactory."
+                    );
                 }
-            } catch (ClassNotFoundException e) {
-                throw new IllegalStateException("Factory não encontrada no APK: " + factoryClass);
-            } catch (ClassCastException e) {
-                throw new IllegalStateException("Factory incompatível com esta versão do OmniYomi: " + factoryClass);
+            } catch (Throwable e) {
+                Log.e(TAG, "Falha ao inicializar classe de extensão: " + className, e);
+                throw new IllegalStateException(
+                    "Falha ao carregar " + className + ": " + rootMessage(e), e
+                );
             }
-        } else {
-            throw new IllegalStateException(
-                "APK não contém 'tachiyomi.extension.class' nem 'tachiyomi.extension.factory' no manifesto.\n"
-                + "Este APK pode não ser uma extensão Tachiyomi/Mihon válida."
-            );
         }
 
         if (results.isEmpty()) {
-            throw new IllegalStateException(
-                "APK carregado mas nenhuma fonte foi registrada. Verifique se o APK é compatível."
-            );
+            throw new IllegalStateException("APK analisado, mas nenhuma fonte executável foi registrada.");
+        }
+
+        // Só publicar fontes no registry após carregar todas as classes com sucesso.
+        for (Source source : results) {
+            String id = String.valueOf(source.getId());
+            Source existing = loadedSources.get(id);
+            String existingPkg = sourceToPkg.get(id);
+            if (existing != null && existingPkg != null && !existingPkg.equals(packageInfo.packageName)) {
+                throw new IllegalStateException(
+                    "Conflito de Source ID " + id + " entre " + existingPkg + " e " + packageInfo.packageName
+                );
+            }
+        }
+        for (Source source : results) {
+            String id = String.valueOf(source.getId());
+            loadedSources.put(id, source);
+            sourceToPkg.put(id, packageInfo.packageName);
+            Log.i(TAG, "Fonte carregada: " + source.getName() + " id=" + id
+                + " lang=" + source.getLang() + " pkg=" + packageInfo.packageName);
         }
 
         return results;
+    }
+
+    private ClassLoader createExtensionClassLoader(String apkPath) {
+        // Delegate-last impede que dependências empacotadas pela extensão sejam
+        // substituídas prematuramente por versões incompatíveis do host. As APIs
+        // compartilhadas (eu.kanade.tachiyomi.*) ainda resolvem pelo parent.
+        if (Build.VERSION.SDK_INT >= 27) {
+            try {
+                return new dalvik.system.DelegateLastClassLoader(
+                    apkPath, null, context.getClassLoader()
+                );
+            } catch (Throwable e) {
+                Log.w(TAG, "DelegateLastClassLoader indisponível; usando PathClassLoader", e);
+            }
+        }
+        return new PathClassLoader(apkPath, context.getClassLoader());
+    }
+
+    private void addLoadedSource(
+        Source source,
+        String packageName,
+        List<Source> results,
+        Set<String> resultIds
+    ) {
+        if (source == null) throw new IllegalStateException("A extensão retornou uma fonte nula.");
+        String id = String.valueOf(source.getId());
+        if (id.equals("0") || id.equals("-1")) {
+            throw new IllegalStateException("Source ID inválido retornado por " + source.getName());
+        }
+        if (!resultIds.add(id)) {
+            throw new IllegalStateException("Source ID duplicado dentro do APK: " + id);
+        }
+        results.add(source);
+    }
+
+    private String rootMessage(Throwable error) {
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+        return root.getClass().getSimpleName() + ": " + String.valueOf(root.getMessage());
     }
 
     /**
@@ -183,37 +254,60 @@ public class ExtensionManager {
      * Não depende de servidor — faz requisição HTTP direta do dispositivo.
      */
     public File downloadExtension(String apkUrl, String pkgName) throws IOException {
-        File apkFile = new File(extensionsDir, pkgName + ".apk");
-        URL url = new URL(apkUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 OmniYomi-Android/1.1.4");
-        conn.setRequestProperty("Accept", "application/vnd.android.package-archive");
+        if (pkgName == null || !pkgName.matches("[A-Za-z0-9_.]+")) {
+            throw new IOException("Package name inválido.");
+        }
+        if (apkUrl == null || !(apkUrl.startsWith("https://"))) {
+            throw new IOException("A URL do APK deve utilizar HTTPS.");
+        }
+
+        File target = new File(extensionsDir, pkgName + ".apk");
+        File temp = new File(extensionsDir, pkgName + ".apk.part");
+        HttpURLConnection conn = (HttpURLConnection) new URL(apkUrl).openConnection();
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 OmniYomi-Android/1.1.6");
+        conn.setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream");
         conn.setConnectTimeout(25000);
-        conn.setReadTimeout(60000);  // APKs podem ser grandes
+        conn.setReadTimeout(60000);
         conn.setInstanceFollowRedirects(true);
         conn.connect();
 
-        int code = conn.getResponseCode();
-        if (code >= 400) {
-            conn.disconnect();
-            throw new IOException("HTTP " + code + " ao baixar extensão de: " + apkUrl);
-        }
-
-        try (InputStream in = new BufferedInputStream(conn.getInputStream(), 16384);
-             OutputStream out = new BufferedOutputStream(new FileOutputStream(apkFile), 16384)) {
-            byte[] buf = new byte[16384];
-            int len;
-            while ((len = in.read(buf)) != -1) {
-                out.write(buf, 0, len);
+        try {
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) {
+                throw new IOException("HTTP " + code + " ao baixar extensão: " + apkUrl);
             }
-            out.flush();
+            try (InputStream in = new BufferedInputStream(conn.getInputStream(), 16384);
+                 OutputStream out = new BufferedOutputStream(new FileOutputStream(temp), 16384)) {
+                byte[] buffer = new byte[16384];
+                int read;
+                while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
+                out.flush();
+            }
+
+            if (!temp.isFile() || temp.length() < 4) {
+                throw new IOException("O download do APK ficou incompleto.");
+            }
+            PackageInfo info = context.getPackageManager().getPackageArchiveInfo(
+                temp.getAbsolutePath(), PackageManager.GET_META_DATA
+            );
+            if (info == null || !pkgName.equals(info.packageName)) {
+                throw new IOException("O arquivo baixado não corresponde ao pacote " + pkgName + ".");
+            }
+
+            if (target.exists() && !target.delete()) {
+                throw new IOException("Não foi possível substituir a versão anterior da extensão.");
+            }
+            if (!temp.renameTo(target)) {
+                throw new IOException("Não foi possível finalizar o armazenamento do APK.");
+            }
+
+            Log.i(TAG, "APK validado e armazenado: " + target.getAbsolutePath()
+                + " (" + target.length() + " bytes)");
+            return target;
         } finally {
             conn.disconnect();
+            if (temp.exists()) temp.delete();
         }
-
-        Log.i(TAG, "APK baixado: " + apkFile.getAbsolutePath()
-            + " (" + apkFile.length() + " bytes)");
-        return apkFile;
     }
 
     public synchronized boolean uninstallExtension(String pkgName) {
@@ -264,6 +358,26 @@ public class ExtensionManager {
         } catch (Exception e) {
             Log.e(TAG, "Falha em getPopularManga para " + s.getName(), e);
             throw new Exception("[" + s.getName() + "] Falha ao buscar catálogo: " + e.getMessage(), e);
+        }
+    }
+
+    public MangasPage getLatestManga(String sourceId, int page) throws Exception {
+        Source source = requireSource(sourceId);
+        if (!(source instanceof CatalogueSource)) {
+            throw new IllegalArgumentException("A fonte " + source.getName() + " não oferece catálogo.");
+        }
+        CatalogueSource catalogue = (CatalogueSource) source;
+        if (!catalogue.getSupportsLatest()) {
+            throw new IllegalArgumentException("A fonte " + source.getName() + " não oferece lançamentos recentes.");
+        }
+        try {
+            MangasPage result = catalogue.fetchLatestUpdates(page).toBlocking().first();
+            Log.i(TAG, "getLatestManga(" + source.getName() + ", p" + page + "): "
+                + (result.getMangas() != null ? result.getMangas().size() : 0) + " obras");
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Falha em getLatestManga para " + source.getName(), e);
+            throw new Exception("[" + source.getName() + "] Falha ao buscar lançamentos: " + e.getMessage(), e);
         }
     }
 
@@ -379,6 +493,186 @@ public class ExtensionManager {
 
         Log.i(TAG, "Download concluído: " + downloaded + "/" + imageUrls.size() + " páginas");
         return downloaded > 0;
+    }
+
+    /**
+     * Baixa diretamente da extensão para usar os headers/cliente HTTP específicos
+     * da fonte. Evita perder Referer, cookies ou User-Agent próprios ao baixar imagens.
+     */
+    public boolean downloadChapterFromSource(String sourceId, String mangaId, String chapterId) throws Exception {
+        Source source = requireSource(sourceId);
+        SChapter chapter = SChapter.create();
+        chapter.setUrl(chapterId);
+        List<Page> pages = source.fetchPageList(chapter).toBlocking().first();
+        if (pages == null || pages.isEmpty()) {
+            throw new IllegalStateException("A fonte não retornou páginas para o capítulo.");
+        }
+
+        File chapterDir = new File(downloadsDir,
+            sanitize(sourceId) + "/" + sanitize(mangaId) + "/" + sanitize(chapterId));
+        if (!chapterDir.exists() && !chapterDir.mkdirs()) {
+            throw new IOException("Não foi possível criar a pasta local do capítulo.");
+        }
+
+        HttpSource httpSource = source instanceof HttpSource ? (HttpSource) source : null;
+        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getClient();
+        int downloaded = 0;
+
+        for (int i = 0; i < pages.size(); i++) {
+            Page page = pages.get(i);
+            String imageUrl = page.getImageUrl();
+            if (imageUrl == null || imageUrl.trim().isEmpty()) imageUrl = page.getUrl();
+            if (imageUrl == null || imageUrl.trim().isEmpty()) {
+                Log.w(TAG, "Página " + (i + 1) + " sem URL de imagem; ignorada.");
+                continue;
+            }
+
+            String extension = imageExtension(imageUrl);
+            File pageFile = new File(chapterDir, String.format(Locale.US, "%04d%s", i + 1, extension));
+            if (pageFile.isFile() && pageFile.length() > 0) {
+                downloaded++;
+                continue;
+            }
+
+            Request request;
+            if (httpSource != null) {
+                if (page.getImageUrl() != null && !page.getImageUrl().trim().isEmpty()) {
+                    request = new Request.Builder()
+                        .url(page.getImageUrl())
+                        .headers(httpSource.getHeaders())
+                        .build();
+                } else {
+                    request = httpSource.imageUrlRequest(page);
+                }
+            } else {
+                request = new Request.Builder()
+                    .url(imageUrl)
+                    .header("User-Agent", "Mozilla/5.0 OmniYomi-Android")
+                    .header("Referer", imageUrl)
+                    .build();
+            }
+
+            File temporary = new File(chapterDir, pageFile.getName() + ".part");
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) {
+                    throw new IOException("HTTP " + response.code() + " ao baixar página " + (i + 1));
+                }
+                try (InputStream in = response.body().byteStream();
+                     OutputStream out = new BufferedOutputStream(new FileOutputStream(temporary))) {
+                    byte[] buffer = new byte[8192];
+                    int length;
+                    while ((length = in.read(buffer)) != -1) out.write(buffer, 0, length);
+                    out.flush();
+                }
+                if (!temporary.renameTo(pageFile)) {
+                    throw new IOException("Não foi possível finalizar o arquivo da página " + (i + 1));
+                }
+                downloaded++;
+            } catch (IOException e) {
+                if (temporary.exists()) temporary.delete();
+                Log.e(TAG, "Falha ao baixar página " + (i + 1) + " de " + source.getName(), e);
+                throw e;
+            }
+        }
+
+        Log.i(TAG, "Download nativo concluído: " + downloaded + "/" + pages.size()
+            + " páginas — " + source.getName());
+        return downloaded == pages.size();
+    }
+
+    private String imageExtension(String url) {
+        String clean = url.toLowerCase(Locale.ROOT);
+        int query = clean.indexOf('?');
+        if (query >= 0) clean = clean.substring(0, query);
+        if (clean.endsWith(".png")) return ".png";
+        if (clean.endsWith(".webp")) return ".webp";
+        if (clean.endsWith(".jpeg")) return ".jpeg";
+        return ".jpg";
+    }
+
+    /** Lista os capítulos armazenados fisicamente no aparelho. */
+    public List<Map<String, Object>> getDownloadedChapters() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return result;
+
+        for (File sourceDir : sourceDirs) {
+            File[] mangaDirs = sourceDir.listFiles(File::isDirectory);
+            if (mangaDirs == null) continue;
+            for (File mangaDir : mangaDirs) {
+                File[] chapterDirs = mangaDir.listFiles(File::isDirectory);
+                if (chapterDirs == null) continue;
+                for (File chapterDir : chapterDirs) {
+                    File[] pages = chapterDir.listFiles((dir, name) ->
+                        name.endsWith(".jpg") || name.endsWith(".jpeg")
+                        || name.endsWith(".png") || name.endsWith(".webp"));
+                    if (pages == null || pages.length == 0) continue;
+
+                    long bytes = 0;
+                    for (File page : pages) bytes += page.length();
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("sourceId", sourceDir.getName());
+                    item.put("mangaId", mangaDir.getName());
+                    item.put("chapterId", chapterDir.getName());
+                    item.put("pages", pages.length);
+                    item.put("totalBytes", bytes);
+                    result.add(item);
+                }
+            }
+        }
+        return result;
+    }
+
+    public long getDownloadsStorageBytes() {
+        return directorySize(downloadsDir);
+    }
+
+    private long directorySize(File directory) {
+        if (directory == null || !directory.exists()) return 0;
+        if (directory.isFile()) return directory.length();
+        long total = 0;
+        File[] children = directory.listFiles();
+        if (children != null) for (File child : children) total += directorySize(child);
+        return total;
+    }
+
+    public boolean deleteOfflineChapterById(String chapterId) {
+        if (chapterId == null || chapterId.trim().isEmpty()) return false;
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return false;
+        boolean deleted = false;
+        for (File sourceDir : sourceDirs) {
+            File[] mangaDirs = sourceDir.listFiles(File::isDirectory);
+            if (mangaDirs == null) continue;
+            for (File mangaDir : mangaDirs) {
+                File chapterDir = new File(mangaDir, sanitize(chapterId));
+                if (chapterDir.exists() && chapterDir.isDirectory()) {
+                    deleteRecursively(chapterDir);
+                    deleted = true;
+                }
+            }
+        }
+        return deleted;
+    }
+
+    public int deleteAllOfflineDownloads() {
+        File[] sourceDirs = downloadsDir.listFiles(File::isDirectory);
+        if (sourceDirs == null) return 0;
+        int deleted = 0;
+        for (File sourceDir : sourceDirs) {
+            deleteRecursively(sourceDir);
+            deleted++;
+        }
+        return deleted;
+    }
+
+    private void deleteRecursively(File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) for (File child : children) deleteRecursively(child);
+        }
+        if (!file.delete()) Log.w(TAG, "Não foi possível excluir arquivo local: " + file.getAbsolutePath());
     }
 
     public List<String> getOfflinePages(String sourceId, String mangaId, String chapterId) {

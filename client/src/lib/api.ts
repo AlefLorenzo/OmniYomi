@@ -3,20 +3,20 @@ import { TachiyomiNative, checkIsNative } from './nativeBridge';
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
 
-  // Servidor salvo manualmente pelo usuário nas configurações → tem prioridade
+  // No APK, o OmniYomi é standalone. Ignore URLs antigas salvas pelo site/desktop
+  // para nenhuma operação mobile voltar silenciosamente a depender de um servidor.
+  if (isCapacitorApp()) return '';
+
+  // Navegador/desktop: servidor opcional existente continua suportado.
   const stored = localStorage.getItem('omniyomi_server_url');
   if (stored && stored.trim().length > 0) return stored.replace(/\/$/, '');
 
-  // Se estiver rodando no NAVEGADOR do PC acessando via IP:porta (ex: http://192.168.0.111:8888/app/)
-  // Neste caso o próprio servidor está servindo a página → usa como base
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     if (window.location.port === '8888' || window.location.port === '4567') {
       return window.location.origin;
     }
   }
 
-  // No Capacitor/Android: modo offline por padrão. Sem IP hardcoded.
-  // O usuário pode configurar o servidor nas configurações se quiser.
   return '';
 }
 
@@ -29,17 +29,18 @@ export function isCapacitorApp(): boolean {
 }
 
 export function isServerConfigured(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined' || isCapacitorApp()) return false;
   const stored = localStorage.getItem('omniyomi_server_url');
   return Boolean(stored && stored.trim().length > 0);
 }
 
 export function setApiBaseUrl(url: string) {
-  if (!url) {
+  // O APK não aceita configuração de servidor: sua arquitetura é local/standalone.
+  if (isCapacitorApp() || !url) {
     localStorage.removeItem('omniyomi_server_url');
-  } else {
-    localStorage.setItem('omniyomi_server_url', url.trim().replace(/\/$/, ''));
+    return;
   }
+  localStorage.setItem('omniyomi_server_url', url.trim().replace(/\/$/, ''));
 }
 
 export function resolveApiUrl(pathOrUrl: string): string {
@@ -77,6 +78,23 @@ function getLocalLibrary(): any[] {
 function saveLocalLibrary(list: any[]) {
   try {
     localStorage.setItem('omniyomi_local_library', JSON.stringify(list));
+  } catch {}
+}
+
+function getLocalCategories(): any[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem('omniyomi_local_categories') || 'null');
+    if (Array.isArray(stored)) return stored;
+  } catch {}
+  return [
+    { id: 'default', name: 'Padrão' },
+    { id: 'favorites', name: 'Favoritos' },
+  ];
+}
+
+function saveLocalCategories(categories: any[]) {
+  try {
+    localStorage.setItem('omniyomi_local_categories', JSON.stringify(categories));
   } catch {}
 }
 
@@ -276,7 +294,7 @@ export const DEFAULT_REPOSITORIES = [
   {
     id: 'keiyoushi',
     name: 'Keiyoushi (Oficial Tachiyomi / Mihon)',
-    url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json',
+    url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb',
     originalUrl: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb',
     enabled: true,
     lastSynced: Date.now(),
@@ -315,14 +333,185 @@ export const DEFAULT_REPOSITORIES = [
   },
 ];
 
+type ProtoField = {
+  number: number;
+  wireType: number;
+  value?: bigint;
+  bytes?: Uint8Array;
+};
+
+function readProtoVarint(bytes: Uint8Array, start: number): { value: bigint; next: number } {
+  let value = 0n;
+  let shift = 0n;
+  let offset = start;
+
+  while (offset < bytes.length && shift <= 70n) {
+    const byte = bytes[offset++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return { value, next: offset };
+    shift += 7n;
+  }
+
+  throw new Error('Índice Protobuf inválido: varint incompleto ou excessivo.');
+}
+
+function readProtoFields(bytes: Uint8Array): ProtoField[] {
+  const fields: ProtoField[] = [];
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    const tag = readProtoVarint(bytes, offset);
+    offset = tag.next;
+
+    const number = Number(tag.value >> 3n);
+    const wireType = Number(tag.value & 7n);
+    if (!number) throw new Error('Índice Protobuf inválido: número de campo zero.');
+
+    if (wireType === 0) {
+      const decoded = readProtoVarint(bytes, offset);
+      fields.push({ number, wireType, value: decoded.value });
+      offset = decoded.next;
+    } else if (wireType === 2) {
+      const length = readProtoVarint(bytes, offset);
+      offset = length.next;
+      if (length.value > BigInt(bytes.length - offset)) {
+        throw new Error('Índice Protobuf inválido: campo excede o tamanho do arquivo.');
+      }
+      const end = offset + Number(length.value);
+      fields.push({ number, wireType, bytes: bytes.subarray(offset, end) });
+      offset = end;
+    } else if (wireType === 1) {
+      if (offset + 8 > bytes.length) throw new Error('Índice Protobuf inválido: campo fix64 truncado.');
+      offset += 8;
+    } else if (wireType === 5) {
+      if (offset + 4 > bytes.length) throw new Error('Índice Protobuf inválido: campo fix32 truncado.');
+      offset += 4;
+    } else {
+      throw new Error(`Índice Protobuf inválido: wire type ${wireType} não suportado.`);
+    }
+
+    fields.push(...[]);
+  }
+
+  return fields;
+}
+
+function protoText(field?: ProtoField): string {
+  return field?.bytes ? new TextDecoder().decode(field.bytes) : '';
+}
+
+function protoFirst(fields: ProtoField[], number: number): ProtoField | undefined {
+  return fields.find(field => field.number === number);
+}
+
+function protoStrings(fields: ProtoField[], number: number): string[] {
+  return fields.filter(field => field.number === number && field.wireType === 2)
+    .map(field => protoText(field));
+}
+
+function parseProtoSource(bytes: Uint8Array): any {
+  const fields = readProtoFields(bytes);
+  const id = protoFirst(fields, 1)?.value ?? 0n;
+  return {
+    id: id.toString(),
+    name: protoText(protoFirst(fields, 2)),
+    language: protoText(protoFirst(fields, 3)),
+    homeUrl: protoText(protoFirst(fields, 4)),
+    mirrorUrls: protoStrings(fields, 5),
+    contentRating: Number(protoFirst(fields, 6)?.value ?? 0n),
+    message: protoText(protoFirst(fields, 7)),
+  };
+}
+
+function parseProtoExtension(bytes: Uint8Array): any {
+  const fields = readProtoFields(bytes);
+  const resourceBytes = protoFirst(fields, 3)?.bytes;
+  const resources = resourceBytes ? readProtoFields(resourceBytes) : [];
+  const sourceFields = fields.filter(field => field.number === 7 && field.bytes);
+  const sources = sourceFields.map(field => parseProtoSource(field.bytes!));
+
+  return {
+    name: protoText(protoFirst(fields, 1)),
+    packageName: protoText(protoFirst(fields, 2)),
+    resources: {
+      apkUrl: protoText(protoFirst(resources, 1)),
+      iconUrl: protoText(protoFirst(resources, 2)),
+    },
+    extensionLib: protoText(protoFirst(fields, 4)),
+    versionCode: (protoFirst(fields, 5)?.value ?? 0n).toString(),
+    versionName: protoText(protoFirst(fields, 6)),
+    // Enum ContentRating: SAFE=0, SUGGESTIVE=1, EROTICA=2, PORNOGRAPHIC=3.
+    contentWarning: sources.some((source: any) => source.contentRating >= 2) ? 3 : 0,
+    sources,
+  };
+}
+
+function parseExtensionIndexProto(bytes: Uint8Array): { extensions: any[]; name?: string; signingKey?: string } {
+  const fields = readProtoFields(bytes);
+  const extensions = fields
+    .filter(field => field.number === 5 && field.wireType === 2 && field.bytes)
+    .map(field => parseProtoExtension(field.bytes!));
+
+  return {
+    name: protoText(protoFirst(fields, 1)),
+    signingKey: protoText(protoFirst(fields, 3)),
+    extensions,
+  };
+}
+
+async function decompressExtensionIndex(bytes: Uint8Array): Promise<Uint8Array> {
+  // Mihon/Keiyoushi publica index.pb comprimido com gzip.
+  const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (!isGzip) return bytes;
+
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error(
+      'Este Android WebView não oferece descompactação gzip nativa. Atualize o Android System WebView para ler index.pb.'
+    );
+  }
+
+  // Copiar para ArrayBuffer próprio: Uint8Array pode ser tipado com ArrayBufferLike
+  // (incluindo SharedArrayBuffer), que não é um BlobPart aceito pelo TypeScript.
+  const ownedBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(ownedBuffer).set(bytes);
+  const compressed = new Blob([ownedBuffer]).stream();
+  const decompressed = compressed.pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(decompressed).arrayBuffer());
+}
+
+async function parseExtensionRepositoryResponse(url: string, response: Response): Promise<any[]> {
+  if (url.toLowerCase().endsWith('.pb')) {
+    try {
+      const downloaded = new Uint8Array(await response.arrayBuffer());
+      const bytes = await decompressExtensionIndex(downloaded);
+      const parsed = parseExtensionIndexProto(bytes);
+      if (parsed.extensions.length > 0) return parsed.extensions;
+      throw new Error('Index.extensions vazio ou ausente.');
+    } catch (protobufError: any) {
+      // Fallback oficial do catálogo legível do mesmo repositório. Isso também
+      // cobre WebViews antigas sem DecompressionStream, sem marcar o .pb como JSON.
+      const jsonUrl = url.replace(/index\.pb$/i, 'index.json');
+      if (jsonUrl === url) throw protobufError;
+      const jsonResponse = await fetch(jsonUrl, { cache: 'no-cache' });
+      if (!jsonResponse.ok) {
+        throw new Error(
+          `Falha ao ler index.pb (${protobufError?.message || protobufError}) e index.json (HTTP ${jsonResponse.status}).`
+        );
+      }
+      return parseExtensionRepositoryResponse(jsonUrl, jsonResponse);
+    }
+  }
+
+  const data = await response.json();
+  return data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+}
+
 export function normalizeRepoUrl(raw: string): string {
   let u = (raw || '').trim();
   if (u.includes('github.com') && u.includes('/raw/')) {
     u = u.replace('github.com', 'raw.githubusercontent.com').replace('/raw/', '/');
   }
-  if (u.endsWith('.pb')) {
-    u = u.replace(/\.pb$/, '.json');
-  }
+  // Preserve index.pb: ele é Protobuf e precisa ser decodificado como binário.
   return u;
 }
 
@@ -333,11 +522,31 @@ function getLocalRepositories(): any[] {
       saveLocalRepositories(DEFAULT_REPOSITORIES);
       return DEFAULT_REPOSITORIES;
     }
+
     const parsed = JSON.parse(stored);
-    const map = new Map<string, any>();
-    DEFAULT_REPOSITORIES.forEach(r => map.set(r.url, r));
-    parsed.forEach((r: any) => map.set(r.url, r));
-    return Array.from(map.values());
+    const savedById = new Map<string, any>(
+      (Array.isArray(parsed) ? parsed : []).map((repo: any) => [String(repo.id || repo.url), repo])
+    );
+    const defaults = new Map<string, any>();
+
+    // Migra URLs antigas pelo ID estável do repositório. Isso troca automaticamente
+    // o Keiyoushi index.json legado pelo index.pb sem perder enabled/lastSynced.
+    for (const repo of DEFAULT_REPOSITORIES) {
+      const saved = savedById.get(String(repo.id));
+      defaults.set(String(repo.id), saved
+        ? { ...repo, ...saved, url: repo.url, originalUrl: repo.originalUrl }
+        : repo);
+      savedById.delete(String(repo.id));
+    }
+
+    // Preserva repositórios personalizados que não fazem parte dos padrões.
+    for (const [id, repo] of savedById.entries()) {
+      if (repo?.url) defaults.set(id, repo);
+    }
+
+    const result = Array.from(defaults.values());
+    saveLocalRepositories(result);
+    return result;
   } catch {
     return DEFAULT_REPOSITORIES;
   }
@@ -462,6 +671,48 @@ export const api = {
 
   // Sources
   getSources: async () => {
+    // Android: fontes exibidas são apenas as que o runtime nativo realmente carregou.
+    // Não misture fontes de catálogo estático, slugs de pacote ou registros antigos/falsos.
+    if (await checkIsNative()) {
+      const [nativeRes, savedSources] = await Promise.all([
+        TachiyomiNative.getInstalledSources(),
+        Promise.resolve(getLocalInstalledSources()),
+      ]);
+      const savedById = new Map<string, any>(
+        savedSources.map((source: any) => [String(source.id), source])
+      );
+      const map = new Map<string, any>();
+
+      for (const nativeSource of nativeRes?.sources || []) {
+        const id = String(nativeSource.id);
+        const saved = savedById.get(id) || {};
+        map.set(id, {
+          ...saved,
+          id,
+          nativeSourceId: id,
+          name: nativeSource.name || saved.name || id,
+          version: saved.version || 'unknown',
+          lang: nativeSource.lang || saved.lang || 'all',
+          iconUrl: saved.iconUrl || '',
+          baseUrl: saved.baseUrl || '',
+          pkg: saved.pkg,
+          isEnabled: saved.isEnabled !== false,
+          isNative: true,
+          isInstalled: true,
+          hasPopular: true,
+          hasLatest: Boolean(nativeSource.supportsLatest ?? true),
+          supportsSearch: true,
+        });
+      }
+
+      // MangaDex é a única fonte HTTP embutida; as demais precisam vir do runtime.
+      const mangaDex = DEFAULT_POPULAR_SOURCES.find((source: any) => source.id === 'mangadex');
+      if (mangaDex) map.set('mangadex', mangaDex);
+
+      return Array.from(map.values());
+    }
+
+    // Navegador: mantém a integração atual com o servidor quando configurado.
     try {
       const serverSources = await request<any[]>('/sources');
       if (Array.isArray(serverSources) && serverSources.length > 0) return serverSources;
@@ -469,36 +720,8 @@ export const api = {
 
     const locals = getLocalInstalledSources();
     const map = new Map<string, any>();
-    DEFAULT_POPULAR_SOURCES.forEach(s => map.set(s.id, s));
-    locals.forEach(s => map.set(s.id, s));
-
-    // Se estiver no Android nativo, busca também fontes nativas registradas no ExtensionManager
-    try {
-      if (await checkIsNative()) {
-        const nativeRes = await TachiyomiNative.getInstalledSources();
-        if (nativeRes?.sources) {
-          nativeRes.sources.forEach((ns: any) => {
-            const sid = String(ns.id);
-            if (!map.has(sid)) {
-              map.set(sid, {
-                id: sid,
-                name: ns.name,
-                version: '1.0.0',
-                lang: ns.lang || 'all',
-                iconUrl: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/' + sid + '.png',
-                baseUrl: '',
-                isEnabled: true,
-                isNative: true,
-                hasPopular: true,
-                hasLatest: true,
-                supportsSearch: true,
-              });
-            }
-          });
-        }
-      }
-    } catch {}
-
+    DEFAULT_POPULAR_SOURCES.forEach(source => map.set(source.id, source));
+    locals.forEach((source: any) => map.set(source.id, source));
     return Array.from(map.values());
   },
   getPopular: async (sourceId: string, page = 1) => {
@@ -509,9 +732,9 @@ export const api = {
     // Android nativo: usa a extensão instalada
     if (await checkIsNative()) {
       try {
-        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-        if (nat?.manga?.length > 0) return nat;
-        throw new Error(`Extensão "${sourceId}" não retornou resultados. Verifique se está instalada corretamente.`);
+        // Uma lista vazia é uma resposta válida da fonte (por exemplo, página sem obras).
+        // A ausência da fonte é sinalizada pelo plugin nativo com uma exceção específica.
+        return await TachiyomiNative.getPopularManga({ sourceId, page });
       } catch (e: any) {
         throw new Error(`[${sourceId}] Falha ao buscar populares: ${e.message}`);
       }
@@ -529,18 +752,12 @@ export const api = {
     }
     if (await checkIsNative()) {
       try {
-        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-        if (nat?.manga?.length > 0) return nat;
-        throw new Error(`Extensão "${sourceId}" não retornou resultados.`);
+        return await TachiyomiNative.getLatestManga({ sourceId, page });
       } catch (e: any) {
         throw new Error(`[${sourceId}] Falha ao buscar recentes: ${e.message}`);
       }
     }
-    try {
-      return await request<any>(`/sources/${sourceId}/latest?page=${page}`);
-    } catch {
-      throw new Error(`Fonte "${sourceId}" não disponível.`);
-    }
+    return request<any>(`/sources/${sourceId}/latest?page=${page}`);
   },
   searchSource: async (sourceId: string, q: string, page = 1) => {
     if (sourceId === 'mangadex') {
@@ -561,8 +778,38 @@ export const api = {
       throw new Error(`Fonte "${sourceId}" não disponível para pesquisa.`);
     }
   },
-  checkSourceHealth: (id: string) => request<any>(`/sources/${id}/health`),
-  toggleSource: (id: string, enabled: boolean) => request<any>(`/sources/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  checkSourceHealth: async (id: string) => {
+    if (await checkIsNative()) {
+      try {
+        const result = await TachiyomiNative.getPopularManga({ sourceId: id, page: 1 });
+        const count = result?.manga?.length || 0;
+        return {
+          status: 'OK',
+          message: `Fonte executada localmente: ${count} obra(s) retornadas.`,
+        };
+      } catch (error: any) {
+        return {
+          status: 'ERROR',
+          message: error?.message || 'Falha ao executar a extensão neste aparelho.',
+        };
+      }
+    }
+    return request<any>(`/sources/${encodeURIComponent(id)}/health`);
+  },
+  toggleSource: async (id: string, enabled: boolean) => {
+    if (await checkIsNative()) {
+      const installed = getLocalInstalledSources();
+      const index = installed.findIndex((source: any) => String(source.id) === String(id));
+      if (index < 0) throw new Error(`Fonte ${id} não encontrada nos metadados locais.`);
+      installed[index] = { ...installed[index], isEnabled: enabled };
+      saveLocalInstalledSources(installed);
+      return { success: true, enabled };
+    }
+    return request<any>(`/sources/${encodeURIComponent(id)}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
   globalSearch: async (q: string) => {
     try {
       return await request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`);
@@ -654,16 +901,13 @@ export const api = {
           const candidates = [primaryUrl];
           if (primaryUrl.endsWith('index.min.json')) {
             candidates.push(primaryUrl.replace('index.min.json', 'index.json'));
-          } else if (primaryUrl.endsWith('index.json')) {
-            candidates.push(primaryUrl.replace('index.json', 'index.min.json'));
           }
 
           for (const u of candidates) {
             try {
               const res = await fetch(u, { cache: 'default' });
               if (!res.ok) continue;
-              const data = await res.json();
-              let rawList: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+              const rawList: any[] = await parseExtensionRepositoryResponse(u, res);
 
               // Se o index.min.json contiver apenas o aviso de app desatualizado, tenta o próximo candidato
               if (
@@ -693,7 +937,8 @@ export const api = {
                 }
                 if (extLang === 'pt-BR') extLang = 'pt-br';
 
-                const isNsfw = e.contentWarning === 'CONTENT_WARNING_NSFW' || Boolean(e.isNsfw || e.nsfw);
+                const warning = e.contentWarning;
+                const isNsfw = warning === 'CONTENT_WARNING_NSFW' || warning === 3 || Boolean(e.isNsfw || e.nsfw);
                 const iconUrl =
                   e.resources?.iconUrl ||
                   (pkg ? `${repoBaseUrl}/icon/${pkg}.png` : '') ||
@@ -714,6 +959,8 @@ export const api = {
                   name: e.name,
                   pkg,
                   version: e.versionName || e.version || '1.0.0',
+                  versionCode: String(e.versionCode || ''),
+                  extensionLib: String(e.extensionLib || e.libVersion || ''),
                   lang: extLang,
                   isNsfw,
                   iconUrl,
@@ -781,6 +1028,13 @@ export const api = {
     // Android: uma falha no runtime nativo NÃO pode virar uma instalação simulada.
     // Só registramos fontes retornadas pelo ExtensionManager após carregamento real.
     if (await checkIsNative()) {
+      const declaredLib = String(extData?.extensionLib || '').trim();
+      if (declaredLib && !declaredLib.startsWith('1.4')) {
+        throw new Error(
+          `A extensão ${pkg} exige TachiyomiX ${declaredLib}. Esta versão do OmniYomi só executa a ABI legada 1.4; a extensão não será marcada como instalada.`
+        );
+      }
+
       const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
       const nativeSources = Array.isArray(res?.sources) ? res.sources : [];
 
@@ -817,6 +1071,8 @@ export const api = {
           nativeSourceId: realId,
           name: src.name || cleanName,
           version: extData?.version || '1.0.0',
+          versionCode: String(extData?.versionCode || ''),
+          extensionLib: String(extData?.extensionLib || ''),
           lang: src.lang || lang,
           iconUrl: icon,
           baseUrl: src.baseUrl || src.homeUrl || '',
@@ -857,17 +1113,12 @@ export const api = {
   },
   uninstallExtracted: async (pkg: string) => {
     if (await checkIsNative()) {
-      try {
-        await TachiyomiNative.uninstallExtension({ pkg });
-      } catch {}
-    }
-    try {
-      return await request<any>(`/extensions/extracted/${pkg}`, { method: 'DELETE' });
-    } catch {
-      const installed = getLocalInstalledSources().filter((s: any) => s.pkg !== pkg && s.id !== pkg);
+      const result = await TachiyomiNative.uninstallExtension({ pkg });
+      const installed = getLocalInstalledSources().filter((source: any) => source.pkg !== pkg);
       saveLocalInstalledSources(installed);
-      return { success: true };
+      return result || { success: true };
     }
+    return request<any>(`/extensions/extracted/${encodeURIComponent(pkg)}`, { method: 'DELETE' });
   },
 
   // Manga
@@ -898,7 +1149,10 @@ export const api = {
     }
   },
   getChapters: async (mangaId: string, sourceId?: string) => {
-    if (!sourceId || sourceId === 'mangadex') {
+    if (!sourceId) {
+      throw new Error('Não foi possível identificar a fonte desta obra. Reabra a obra pela extensão correta; nenhuma fonte alternativa será utilizada.');
+    }
+    if (sourceId === 'mangadex') {
       return getMangaDexChapters(mangaId);
     }
     if (await checkIsNative()) {
@@ -916,47 +1170,160 @@ export const api = {
       throw new Error(`Capítulos não disponíveis. Fonte "${sourceId}" indisponível.`);
     }
   },
-  refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
-  setInLibrary: async (id: string, inLibrary: boolean, categoryId?: string) => {
-    try {
-      return await request<any>(`/manga/${id}/library`, { method: 'POST', body: JSON.stringify({ inLibrary, categoryId }) });
-    } catch {
-      let lib = getLocalLibrary();
-      if (inLibrary) {
-        if (!lib.some((m: any) => m.id === id)) {
-          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
-          lib.push({ ...details, inLibrary: true, isFavorite: true, categoryId });
-        }
+  refreshManga: async (mangaId: string, sourceId?: string) => {
+    if (await checkIsNative()) {
+      if (!sourceId) throw new Error('A fonte desta obra não está identificada na biblioteca.');
+      const result = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
+      const chapters = result?.chapters || [];
+      const library = getLocalLibrary();
+      const index = library.findIndex((item: any) => String(item.id) === String(mangaId));
+      if (index >= 0) {
+        const existing = new Map<string, any>(
+          (library[index].chapters || []).map((chapter: any) => [
+            String(chapter.id || chapter.url || chapter.sourceChapterId),
+            chapter,
+          ])
+        );
+        const merged = chapters.map((chapter: any) => {
+          const key = String(chapter.id || chapter.url || chapter.sourceChapterId);
+          const previous = existing.get(key);
+          return previous ? { ...chapter, ...previous, ...chapter } : chapter;
+        });
+        library[index] = { ...library[index], chapters: merged, lastCheckedAt: new Date().toISOString() };
+        saveLocalLibrary(library);
+      }
+      return { success: true, chapters, total: chapters.length };
+    }
+    return request<any>(`/manga/${encodeURIComponent(mangaId)}/refresh`, { method: 'POST' });
+  },
+  setInLibrary: async (
+    id: string,
+    inLibrary: boolean,
+    categoryId?: string,
+    mangaData?: any,
+  ) => {
+    const isNative = await checkIsNative();
+    if (!isNative) {
+      try {
+        return await request<any>(`/manga/${encodeURIComponent(id)}/library`, {
+          method: 'POST',
+          body: JSON.stringify({ inLibrary, categoryId }),
+        });
+      } catch {
+        // O modo web sem backend também pode usar a biblioteca local.
+      }
+    }
+
+    const lib = getLocalLibrary();
+    const index = lib.findIndex((m: any) => String(m.id) === String(id));
+
+    if (!inLibrary) {
+      const next = lib.filter((m: any) => String(m.id) !== String(id));
+      saveLocalLibrary(next);
+      return { inLibrary: false, isFavorite: false };
+    }
+
+    let details = mangaData || (index >= 0 ? lib[index] : null);
+    if (!details) {
+      if (!isNative) {
+        details = await getMangaDexDetails(id);
       } else {
-        lib = lib.filter((m: any) => m.id !== id);
+        throw new Error(
+          'Não foi possível salvar esta obra: os dados da fonte não foram enviados para a biblioteca.'
+        );
+      }
+    }
+
+    const record = {
+      ...details,
+      id,
+      sourceId: details.sourceId || (id.includes('mangadex') ? 'mangadex' : undefined),
+      sourceMangaId: details.sourceMangaId || details.url || id,
+      chapters: Array.isArray(details.chapters) ? details.chapters : [],
+      inLibrary: true,
+      isFavorite: Boolean(details.isFavorite || categoryId === 'favorites'),
+      categoryId: categoryId || details.categoryId || 'default',
+      savedAt: details.savedAt || new Date().toISOString(),
+    };
+
+    if (index >= 0) lib[index] = { ...lib[index], ...record };
+    else lib.unshift(record);
+    saveLocalLibrary(lib);
+    return { inLibrary: true, isFavorite: record.isFavorite };
+  },
+  toggleFavorite: async (id: string, isFavorite: boolean, mangaData?: any) => {
+    const isNative = await checkIsNative();
+    if (!isNative) {
+      try {
+        return await request<any>(`/manga/${encodeURIComponent(id)}/favorite`, {
+          method: 'POST',
+          body: JSON.stringify({ isFavorite }),
+        });
+      } catch {
+        // Continua com persistência local se o backend web não estiver disponível.
+      }
+    }
+
+    const lib = getLocalLibrary();
+    const index = lib.findIndex((m: any) => String(m.id) === String(id));
+    const existing = index >= 0 ? lib[index] : null;
+
+    if (!isFavorite) {
+      if (!existing) return { isFavorite: false, inLibrary: false };
+      if (existing.wasInLibraryBeforeFavorite) {
+        const updated = { ...existing, isFavorite: false, inLibrary: true, categoryId: 'default' };
+        delete updated.wasInLibraryBeforeFavorite;
+        lib[index] = updated;
+      } else {
+        lib.splice(index, 1);
       }
       saveLocalLibrary(lib);
-      return { inLibrary, isFavorite: inLibrary };
+      return { isFavorite: false, inLibrary: Boolean(existing.wasInLibraryBeforeFavorite) };
     }
-  },
-  toggleFavorite: async (id: string, isFavorite: boolean) => {
-    try {
-      return await request<any>(`/manga/${id}/favorite`, { method: 'POST', body: JSON.stringify({ isFavorite }) });
-    } catch {
-      let lib = getLocalLibrary();
-      if (isFavorite) {
-        if (!lib.some((m: any) => m.id === id)) {
-          const details = await getMangaDexDetails(id).catch(() => ({ id, title: 'Mangá', coverUrl: '' }));
-          lib.push({ ...details, inLibrary: true, isFavorite: true });
-        }
-      } else {
-        lib = lib.filter((m: any) => m.id !== id);
-      }
-      saveLocalLibrary(lib);
-      return { isFavorite, inLibrary: isFavorite };
+
+    let details = mangaData || existing;
+    if (!details) {
+      if (!isNative) details = await getMangaDexDetails(id);
+      else throw new Error('Não foi possível favoritar: os dados da obra não foram enviados.');
     }
+
+    const wasInLibraryBeforeFavorite = existing
+      ? (existing.isFavorite ? Boolean(existing.wasInLibraryBeforeFavorite) : Boolean(existing.inLibrary))
+      : false;
+    const record = {
+      ...details,
+      id,
+      sourceMangaId: details.sourceMangaId || details.url || id,
+      chapters: Array.isArray(details.chapters) ? details.chapters : [],
+      inLibrary: true,
+      isFavorite: true,
+      categoryId: existing?.categoryId && existing.categoryId !== 'favorites' ? existing.categoryId : 'favorites',
+      wasInLibraryBeforeFavorite,
+      savedAt: details.savedAt || new Date().toISOString(),
+    };
+    if (index >= 0) lib[index] = { ...existing, ...record };
+    else lib.unshift(record);
+    saveLocalLibrary(lib);
+    return { isFavorite: true, inLibrary: true };
   },
-  setCategory: (id: string, categoryId: string) =>
-    request<any>(`/manga/${id}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) }),
+  setCategory: async (id: string, categoryId: string) => {
+    if (await checkIsNative()) {
+      const library = getLocalLibrary();
+      const index = library.findIndex((item: any) => String(item.id) === String(id));
+      if (index < 0) throw new Error('A obra não está na biblioteca local.');
+      library[index] = { ...library[index], categoryId };
+      saveLocalLibrary(library);
+      return { success: true, categoryId };
+    }
+    return request<any>(`/manga/${encodeURIComponent(id)}/category`, { method: 'PUT', body: JSON.stringify({ categoryId }) });
+  },
 
   // Chapters
   getPages: async (chapterId: string, sourceId?: string, mangaId?: string) => {
-    if (!sourceId || sourceId === 'mangadex') {
+    if (!sourceId) {
+      throw new Error('Não foi possível identificar a fonte deste capítulo. Nenhuma fonte alternativa será utilizada.');
+    }
+    if (sourceId === 'mangadex') {
       return getMangaDexPages(chapterId);
     }
     if (await checkIsNative()) {
@@ -995,11 +1362,53 @@ export const api = {
       return { success: true };
     }
   },
-  markChaptersRead: (chapterIds: string[], isRead: boolean) =>
-    request<any>('/chapters/mark-read', { method: 'POST', body: JSON.stringify({ chapterIds, isRead }) }),
+  markChaptersRead: async (chapterIds: string[], isRead: boolean) => {
+    if (await checkIsNative()) {
+      const ids = new Set(chapterIds.map(String));
+      const library = getLocalLibrary().map((manga: any) => ({
+        ...manga,
+        chapters: (manga.chapters || []).map((chapter: any) =>
+          ids.has(String(chapter.id || chapter.url || chapter.sourceChapterId))
+            ? { ...chapter, isRead }
+            : chapter
+        ),
+      }));
+      saveLocalLibrary(library);
+      return { success: true, updated: chapterIds.length };
+    }
+    return request<any>('/chapters/mark-read', { method: 'POST', body: JSON.stringify({ chapterIds, isRead }) });
+  },
 
   // Downloads
   getDownloads: async () => {
+    if (await checkIsNative()) {
+      const native = await TachiyomiNative.getDownloadedChapters();
+      const library = getLocalLibrary();
+      const key = (value: any) => String(value || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+      return (native.downloads || []).map((item: any) => {
+        const manga = library.find((entry: any) =>
+          key(entry.id || entry.sourceMangaId) === item.mangaId &&
+          key(entry.sourceId || 'mangadex') === item.sourceId
+        );
+        const chapter = (manga?.chapters || []).find((entry: any) =>
+          key(entry.id || entry.url || entry.sourceChapterId) === item.chapterId
+        );
+        return {
+          id: `${item.sourceId}:${item.mangaId}:${item.chapterId}`,
+          sourceId: item.sourceId,
+          mangaId: item.mangaId,
+          chapterId: item.chapterId,
+          mangaTitle: manga?.title || item.mangaId,
+          chapterTitle: chapter?.name || chapter?.title || item.chapterId,
+          coverUrl: manga?.coverUrl || '',
+          status: 'COMPLETED',
+          progress: 100,
+          downloadedPages: item.pages,
+          totalPages: item.pages,
+          totalBytes: item.totalBytes,
+        };
+      });
+    }
     try {
       return await request<any[]>('/downloads');
     } catch {
@@ -1007,47 +1416,72 @@ export const api = {
     }
   },
   getStorageUsage: async () => {
+    if (await checkIsNative()) return TachiyomiNative.getStorageUsage();
     try {
       return await request<{ totalBytes: number; formatted: string }>('/downloads/storage');
     } catch {
       return { totalBytes: 0, formatted: '0 MB' };
     }
   },
-  enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, imageUrls?: string[]) => {
-    if (sourceId && mangaId && (await checkIsNative())) {
+  enqueueDownload: async (chapterId: string, sourceId?: string, mangaId?: string, _imageUrls?: string[]) => {
+    if (await checkIsNative()) {
+      if (!sourceId || !mangaId) {
+        throw new Error('sourceId e mangaId são necessários para baixar capítulos no aparelho.');
+      }
       try {
-        let urls = imageUrls;
-        if (!urls || urls.length === 0) {
-          const pagesRes = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
-          urls = pagesRes.pages?.map((p: any) => p.url) || [];
-        }
-        if (urls && urls.length > 0) {
-          return await TachiyomiNative.downloadChapter({ sourceId, mangaId, chapterId, imageUrls: urls });
-        }
-      } catch (err: any) {
-        console.error('Erro ao baixar capítulo nativo:', err);
+        const result = await TachiyomiNative.downloadChapterFromSource({
+          sourceId, mangaId, chapterId,
+        });
+        if (!result?.success) throw new Error('O download não foi concluído.');
+        return result;
+      } catch (error: any) {
+        throw new Error(`Falha no download local: ${error?.message || error}`);
       }
     }
     return request<any>('/downloads/enqueue', { method: 'POST', body: JSON.stringify({ chapterId }) });
   },
   enqueueBatch: async (chapterIds: string[], sourceId?: string, mangaId?: string) => {
-    if (sourceId && mangaId && (await checkIsNative())) {
+    if (await checkIsNative()) {
       let count = 0;
-      for (const chId of chapterIds) {
+      const errors: string[] = [];
+      for (const chapterId of chapterIds) {
         try {
-          await api.enqueueDownload(chId, sourceId, mangaId);
+          await api.enqueueDownload(chapterId, sourceId, mangaId);
           count++;
-        } catch {}
+        } catch (error: any) {
+          errors.push(`${chapterId}: ${error?.message || error}`);
+        }
       }
-      return { success: true, enqueuedCount: count };
+      return { success: errors.length === 0, enqueuedCount: count, errors };
     }
     return request<any>('/downloads/enqueue-batch', { method: 'POST', body: JSON.stringify({ chapterIds }) });
   },
-  cancelDownload: (chapterId: string, deleteFiles = false) => request<any>(`/downloads/${chapterId}?deleteFiles=${deleteFiles}`, { method: 'DELETE' }),
-  pauseDownloads: () => request<any>('/downloads/pause', { method: 'POST' }),
-  resumeDownloads: () => request<any>('/downloads/resume', { method: 'POST' }),
-  clearCompleted: () => request<any>('/downloads/clear-completed', { method: 'POST' }),
-  scanLocal: () => request<any>('/downloads/scan-local', { method: 'POST' }),
+  cancelDownload: async (chapterId: string, deleteFiles = false) => {
+    if (await checkIsNative()) {
+      if (!deleteFiles) return { success: false, message: 'Não há fila de downloads em segundo plano no modo Android local.' };
+      return TachiyomiNative.deleteOfflineChapter({ chapterId });
+    }
+    return request<any>(`/downloads/${encodeURIComponent(chapterId)}?deleteFiles=${deleteFiles}`, { method: 'DELETE' });
+  },
+  pauseDownloads: async () => {
+    if (await checkIsNative()) return { success: true, paused: false, message: 'Downloads locais são executados diretamente pelo aparelho.' };
+    return request<any>('/downloads/pause', { method: 'POST' });
+  },
+  resumeDownloads: async () => {
+    if (await checkIsNative()) return { success: true, resumed: true };
+    return request<any>('/downloads/resume', { method: 'POST' });
+  },
+  clearCompleted: async () => {
+    if (await checkIsNative()) return TachiyomiNative.deleteAllOfflineDownloads();
+    return request<any>('/downloads/clear-completed', { method: 'POST' });
+  },
+  scanLocal: async () => {
+    if (await checkIsNative()) {
+      const result = await TachiyomiNative.getDownloadedChapters();
+      return { importedCount: result.downloads?.length || 0 };
+    }
+    return request<any>('/downloads/scan-local', { method: 'POST' });
+  },
 
   // Library
   getLibrary: async (category?: string, search?: string) => {
@@ -1059,6 +1493,9 @@ export const api = {
       return await request<any[]>(`/library${qs ? `?${qs}` : ''}`);
     } catch {
       let lib = getLocalLibrary();
+      if (category && category !== 'all') {
+        lib = lib.filter((m: any) => m.categoryId === category);
+      }
       if (search) {
         lib = lib.filter((m: any) => m.title?.toLowerCase().includes(search.toLowerCase()));
       }
@@ -1066,14 +1503,35 @@ export const api = {
     }
   },
   getCategories: async () => {
+    if (await checkIsNative()) return getLocalCategories();
     try {
       return await request<any[]>('/library/categories');
     } catch {
-      return [];
+      return getLocalCategories();
     }
   },
-  createCategory: (name: string) => request<any>('/library/categories', { method: 'POST', body: JSON.stringify({ name }) }),
-  deleteCategory: (id: string) => request<any>(`/library/categories/${id}`, { method: 'DELETE' }),
+  createCategory: async (name: string) => {
+    if (await checkIsNative()) {
+      const categories = getLocalCategories();
+      const category = { id: `category_${Date.now()}`, name };
+      categories.push(category);
+      saveLocalCategories(categories);
+      return category;
+    }
+    return request<any>('/library/categories', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+  deleteCategory: async (id: string) => {
+    if (await checkIsNative()) {
+      const categories = getLocalCategories().filter((category: any) => category.id !== id);
+      saveLocalCategories(categories);
+      const library = getLocalLibrary().map((manga: any) =>
+        manga.categoryId === id ? { ...manga, categoryId: 'default' } : manga
+      );
+      saveLocalLibrary(library);
+      return { success: true };
+    }
+    return request<any>(`/library/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
 
   // History
   getHistory: async (limit = 50) => {
@@ -1093,8 +1551,48 @@ export const api = {
   },
 
   // Settings
-  getSettings: () => request<any>('/settings'),
-  updateSettings: (settings: any) => request<any>('/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  getSettings: async () => {
+    const defaults = {
+      downloadPath: 'OmniYomi/Downloads',
+      concurrentDownloads: 2,
+      autoDownloadNew: false,
+      defaultReaderMode: 'vertical_webtoon',
+      readerMode: 'vertical_webtoon',
+      fitMode: 'fit_width',
+      pageSpacing: 4,
+      autoMarkReadPercent: 80,
+      port: 4567,
+      flaresolverrUrl: '',
+    };
+    if (await checkIsNative()) {
+      try {
+        return { ...defaults, ...JSON.parse(localStorage.getItem('omniyomi_settings') || '{}') };
+      } catch {
+        return defaults;
+      }
+    }
+    try {
+      return await request<any>('/settings');
+    } catch {
+      try {
+        return { ...defaults, ...JSON.parse(localStorage.getItem('omniyomi_settings') || '{}') };
+      } catch {
+        return defaults;
+      }
+    }
+  },
+  updateSettings: async (settings: any) => {
+    if (await checkIsNative()) {
+      localStorage.setItem('omniyomi_settings', JSON.stringify(settings));
+      return settings;
+    }
+    try {
+      return await request<any>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
+    } catch {
+      localStorage.setItem('omniyomi_settings', JSON.stringify(settings));
+      return settings;
+    }
+  },
 
   // Updates
   checkUpdates: async () => {
@@ -1167,25 +1665,39 @@ export const api = {
     await Promise.allSettled(repos.map(async (repo: any) => {
       try {
         const url = normalizeRepoUrl(repo.url);
-        const res = await fetch(url, { cache: 'default' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const exts: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const exts = await parseExtensionRepositoryResponse(url, res);
+
         for (const ext of exts) {
           const pkg = ext.packageName || ext.pkg || '';
-          const local = installed.find((s: any) => s.pkg === pkg);
-          if (local && ext.versionName && ext.versionName !== local.version) {
+          const local = installed.find((source: any) => source.pkg === pkg);
+          if (!local) continue;
+
+          const remoteCode = String(ext.versionCode || '');
+          const localCode = String(local.versionCode || '');
+          const remoteVersion = String(ext.versionName || ext.version || '');
+          const hasNewerCode = remoteCode && localCode
+            ? BigInt(remoteCode) > BigInt(localCode)
+            : Boolean(remoteVersion && remoteVersion !== String(local.version || ''));
+
+          if (hasNewerCode) {
             updates.push({
               pkg,
               name: ext.name || local.name,
               currentVersion: local.version,
-              newVersion: ext.versionName,
+              newVersion: remoteVersion || 'Atualização disponível',
+              currentVersionCode: localCode,
+              newVersionCode: remoteCode,
+              extensionLib: ext.extensionLib || '',
               apkUrl: ext.resources?.apkUrl || (ext.apk ? `${url.substring(0, url.lastIndexOf('/'))}/apk/${ext.apk}` : ''),
               repoName: repo.name,
             });
           }
         }
-      } catch {}
+      } catch (error: any) {
+        console.warn(`[Atualização de extensões] Falha ao consultar ${repo.name}:`, error?.message || error);
+      }
     }));
 
     return { updates, totalUpdates: updates.length };

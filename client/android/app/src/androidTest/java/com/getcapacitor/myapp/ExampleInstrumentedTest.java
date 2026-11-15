@@ -3,24 +3,26 @@ package com.getcapacitor.myapp;
 import static org.junit.Assert.*;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-/**
- * Instrumented test, which will execute on an Android device.
- *
- * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
- */
 @RunWith(AndroidJUnit4.class)
 public class ExampleInstrumentedTest {
 
     @Test
-    public void useAppContext() throws Exception {
-        // Context of the app under test.
+    public void applicationUsesOmniYomiPackage() {
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        assertEquals("com.omniyomi.app", appContext.getPackageName());
+        assertNotNull(appContext.getApplicationInfo());
+    }
 
-        assertEquals("com.getcapacitor.app", appContext.getPackageName());
+    @Test
+    public void internetPermissionIsDeclared() {
+        Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        int permission = appContext.checkCallingOrSelfPermission(android.Manifest.permission.INTERNET);
+        assertEquals(PackageManager.PERMISSION_GRANTED, permission);
     }
 }

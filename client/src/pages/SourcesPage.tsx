@@ -5,6 +5,7 @@ import {
   Package, Plus, Search, Globe, Download, HardDrive, ExternalLink, BookOpen
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { checkIsNative } from '../lib/nativeBridge';
 import { Button, Loader, Empty, Input, Modal } from '../components/ui/index';
 import { Badge } from '../components/ui/CoverCard';
 import { useToast } from '../components/ui/ToastProvider';
@@ -16,6 +17,7 @@ export function SourcesPage() {
   const navigate = useNavigate();
   const { show } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('installed');
+  const [isNativeAndroid, setIsNativeAndroid] = useState(false);
 
   // Installed sources
   const [sources, setSources] = useState<any[]>([]);
@@ -43,6 +45,7 @@ export function SourcesPage() {
   useEffect(() => {
     loadInstalledSources();
     loadRepos();
+    checkIsNative().then(setIsNativeAndroid).catch(() => setIsNativeAndroid(false));
   }, []);
 
   useEffect(() => {
@@ -406,6 +409,13 @@ export function SourcesPage() {
                           <Trash2 size={13} />
                         </button>
                       </div>
+                    ) : isNativeAndroid && ext.extensionLib && !String(ext.extensionLib).startsWith('1.4') ? (
+                      <span
+                        className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-2.5 py-1.5 text-center max-w-[132px]"
+                        title={`Esta extensão requer a API ${ext.extensionLib}; o runtime deste APK ainda suporta somente a ABI 1.4.`}
+                      >
+                        API {ext.extensionLib} incompatível
+                      </span>
                     ) : (
                       <Button
                         size="sm"

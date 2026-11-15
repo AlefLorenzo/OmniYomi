@@ -50,7 +50,7 @@ public class TachiyomiNativePlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File apkFile = manager.downloadExtension(apkUrl, pkg);
-                List<Source> sources = manager.loadExtensionApk(apkFile);
+                List<Source> sources = manager.loadExtensionApk(apkFile, pkg);
 
                 JSArray arr = new JSArray();
                 for (Source s : sources) {
@@ -94,6 +94,8 @@ public class TachiyomiNativePlugin extends Plugin {
             so.put("id", String.valueOf(s.getId()));
             so.put("name", s.getName());
             so.put("lang", s.getLang());
+            so.put("supportsLatest", s instanceof eu.kanade.tachiyomi.source.CatalogueSource
+                && ((eu.kanade.tachiyomi.source.CatalogueSource) s).getSupportsLatest());
             so.put("isNative", true);
             arr.put(so);
         }
@@ -135,6 +137,43 @@ public class TachiyomiNativePlugin extends Plugin {
             } catch (Exception e) {
                 Log.e(TAG, "Erro getPopularManga na fonte " + sourceId, e);
                 call.reject("Erro ao buscar populares da extensão: " + e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getLatestManga(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        int page = call.getInt("page", 1);
+        if (sourceId == null) {
+            call.reject("sourceId é obrigatório");
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                MangasPage res = manager.getLatestManga(sourceId, page);
+                JSArray mangas = new JSArray();
+                for (SManga m : res.getMangas()) {
+                    JSObject mo = new JSObject();
+                    mo.put("id", m.getUrl());
+                    mo.put("sourceId", sourceId);
+                    mo.put("title", m.getTitle());
+                    mo.put("url", m.getUrl());
+                    mo.put("coverUrl", m.getThumbnail_url());
+                    mo.put("author", m.getAuthor());
+                    mo.put("artist", m.getArtist());
+                    mo.put("description", m.getDescription());
+                    mo.put("status", m.getStatus() == SManga.COMPLETED ? "completed" : "ongoing");
+                    mangas.put(mo);
+                }
+                JSObject ret = new JSObject();
+                ret.put("manga", mangas);
+                ret.put("hasNextPage", res.getHasNextPage());
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "Erro getLatestManga na fonte " + sourceId, e);
+                call.reject("Erro ao buscar lançamentos da extensão: " + e.getMessage());
             }
         });
     }
@@ -297,6 +336,75 @@ public class TachiyomiNativePlugin extends Plugin {
                 call.reject("Erro ao baixar capítulo: " + e.getMessage());
             }
         });
+    }
+
+    @PluginMethod
+    public void downloadChapterFromSource(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        String mangaId = call.getString("mangaId");
+        String chapterId = call.getString("chapterId");
+        if (sourceId == null || mangaId == null || chapterId == null) {
+            call.reject("sourceId, mangaId e chapterId são obrigatórios");
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                boolean success = manager.downloadChapterFromSource(sourceId, mangaId, chapterId);
+                JSObject ret = new JSObject();
+                ret.put("success", success);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "Falha ao baixar capítulo usando a própria extensão", e);
+                call.reject("Falha no download local: " + e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getDownloadedChapters(PluginCall call) {
+        JSArray arr = new JSArray();
+        for (java.util.Map<String, Object> item : manager.getDownloadedChapters()) {
+            JSObject entry = new JSObject();
+            for (java.util.Map.Entry<String, Object> field : item.entrySet()) {
+                entry.put(field.getKey(), field.getValue());
+            }
+            arr.put(entry);
+        }
+        JSObject ret = new JSObject();
+        ret.put("downloads", arr);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getStorageUsage(PluginCall call) {
+        JSObject ret = new JSObject();
+        long bytes = manager.getDownloadsStorageBytes();
+        ret.put("totalBytes", bytes);
+        ret.put("formatted", String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void deleteOfflineChapter(PluginCall call) {
+        String chapterId = call.getString("chapterId");
+        if (chapterId == null) {
+            call.reject("chapterId é obrigatório");
+            return;
+        }
+        boolean deleted = manager.deleteOfflineChapterById(chapterId);
+        JSObject ret = new JSObject();
+        ret.put("success", deleted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void deleteAllOfflineDownloads(PluginCall call) {
+        int deleted = manager.deleteAllOfflineDownloads();
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("deletedFolders", deleted);
+        call.resolve(ret);
     }
 
     @PluginMethod
