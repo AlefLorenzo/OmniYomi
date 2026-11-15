@@ -69,7 +69,8 @@ public class ExtensionManager {
         Arrays.sort(apks, Comparator.comparing(File::getName));
         for (File apk : apks) {
             try {
-                loadExtensionApk(apk);
+                String expectedPackage = apk.getName().substring(0, apk.getName().length() - 4);
+                loadExtensionApk(apk, expectedPackage);
             } catch (Exception e) {
                 Log.e(TAG, "Extensão não carregada: " + apk.getName() + " — " + e.getMessage(), e);
             }
@@ -110,6 +111,19 @@ public class ExtensionManager {
         android.os.Bundle meta = appInfo.metaData;
         if (meta == null) {
             throw new IllegalStateException("O manifesto do APK não contém metadados de extensão.");
+        }
+
+        // Esta build contém a ABI legada Tachiyomi 1.4 (interfaces RxJava).
+        // TachiyomiX 1.6 mudou Source para métodos suspend/coroutines e modelos Kotlin.
+        // Não marcar essas extensões como instaladas: elas exigem o runtime 1.6 completo.
+        String extensionLib = meta.getString("tachiyomix.extensionLib");
+        if (extensionLib != null && !extensionLib.trim().isEmpty()
+            && !extensionLib.trim().startsWith("1.4")) {
+            throw new IllegalStateException(
+                "API de extensão incompatível: este APK declara TachiyomiX "
+                + extensionLib + ", mas esta versão do OmniYomi só implementa a ABI legada 1.4. "
+                + "A extensão não foi registrada como instalada."
+            );
         }
 
         String classMetadata = meta.getString("tachiyomi.extension.class");
