@@ -2,11 +2,11 @@ name: Android Build & Release
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, fix/android-extensions-runtime-v1.1.7 ]
     tags:
       - 'v*'
   pull_request:
-    branches: [ master ]
+    branches: [ master, fix/android-extensions-runtime-v1.1.6 ]
   workflow_dispatch:
     inputs:
       version:
