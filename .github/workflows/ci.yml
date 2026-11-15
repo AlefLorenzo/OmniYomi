@@ -2,23 +2,23 @@ name: CI - Build & Test
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, fix/android-extensions-runtime-v1.1.7 ]
   pull_request:
-    branches: [ master, main ]
+    branches: [ master, main, fix/android-extensions-runtime-v1.1.6, fix/android-extensions-runtime-v1.1.7 ]
 
 jobs:
   validate:
     name: Build & TypeScript Validation
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Instalar dependências raiz
