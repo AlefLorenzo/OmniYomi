@@ -94,6 +94,17 @@ function saveLocalHistory(list: any[]) {
   } catch {}
 }
 
+// Função auxiliar para gerar hash determinístico de uma string
+function hashCode(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
 // Suporte direto à API do MangaDex sem depender de servidor local
 async function fetchMangaDexPopular(page = 1) {
   const limit = 20;
@@ -491,42 +502,63 @@ export const api = {
     return Array.from(map.values());
   },
   getPopular: async (sourceId: string, page = 1) => {
+    // MangaDex: usa a API diretamente
+    if (sourceId === 'mangadex') {
+      return fetchMangaDexPopular(page);
+    }
+    // Android nativo: usa a extensão instalada
+    if (await checkIsNative()) {
+      try {
+        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
+        if (nat?.manga?.length > 0) return nat;
+        throw new Error(`Extensão "${sourceId}" não retornou resultados. Verifique se está instalada corretamente.`);
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao buscar populares: ${e.message}`);
+      }
+    }
+    // Web com servidor configurado
     try {
       return await request<any>(`/sources/${sourceId}/popular?page=${page}`);
     } catch {
-      if (await checkIsNative()) {
-        try {
-          const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-          if (nat?.manga?.length > 0) return nat;
-        } catch {}
-      }
-      return fetchMangaDexPopular(page);
+      throw new Error(`Fonte "${sourceId}" não disponível. Instale a extensão primeiro ou configure o servidor.`);
     }
   },
   getLatest: async (sourceId: string, page = 1) => {
+    if (sourceId === 'mangadex') {
+      return fetchMangaDexPopular(page);
+    }
+    if (await checkIsNative()) {
+      try {
+        const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
+        if (nat?.manga?.length > 0) return nat;
+        throw new Error(`Extensão "${sourceId}" não retornou resultados.`);
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao buscar recentes: ${e.message}`);
+      }
+    }
     try {
       return await request<any>(`/sources/${sourceId}/latest?page=${page}`);
     } catch {
-      if (await checkIsNative()) {
-        try {
-          const nat = await TachiyomiNative.getPopularManga({ sourceId, page });
-          if (nat?.manga?.length > 0) return nat;
-        } catch {}
-      }
-      return fetchMangaDexPopular(page);
+      throw new Error(`Fonte "${sourceId}" não disponível.`);
     }
   },
   searchSource: async (sourceId: string, q: string, page = 1) => {
+    if (sourceId === 'mangadex') {
+      return searchMangaDex(q, page);
+    }
+    if (await checkIsNative()) {
+      try {
+        const nat = await TachiyomiNative.searchManga({ sourceId, query: q, page });
+        if (nat?.manga?.length > 0) return nat;
+        return { manga: [], hasNextPage: false };
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao pesquisar: ${e.message}`);
+      }
+    }
     try {
       return await request<any>(`/sources/${sourceId}/search?q=${encodeURIComponent(q)}&page=${page}`);
     } catch {
-      if (await checkIsNative()) {
-        try {
-          const nat = await TachiyomiNative.searchManga({ sourceId, query: q, page });
-          if (nat?.manga?.length > 0) return nat;
-        } catch {}
-      }
-      return searchMangaDex(q, page);
+      throw new Error(`Fonte "${sourceId}" não disponível para pesquisa.`);
     }
   },
   checkSourceHealth: (id: string) => request<any>(`/sources/${id}/health`),
@@ -750,37 +782,70 @@ export const api = {
       try {
         const res = await TachiyomiNative.installExtension({ apkUrl, pkg });
         const installed = getLocalInstalledSources();
-        const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
         const cleanName = extData?.name || pkg.split('.').pop() || pkg;
         const icon = extData?.iconUrl || `https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/${pkg}.png`;
         const lang = extData?.lang || (pkg.includes('.pt.') ? 'pt-br' : 'en');
-        const sources = (res.sources && res.sources.length > 0) ? res.sources : (extData?.sources || []);
 
-        const newSource = {
-          id: sources[0]?.id || pkg.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
-          name: cleanName,
-          version: extData?.version || '1.0.0',
-          lang,
-          iconUrl: icon,
-          baseUrl: extData?.sources?.[0]?.baseUrl || apkUrl,
-          isEnabled: true,
-          isNsfw: Boolean(extData?.isNsfw),
-          hasPopular: true,
-          hasLatest: true,
-          supportsSearch: true,
-          pkg,
-          repoUrl: repoUrl || extData?.repoUrl || '',
-          sources,
-          isNative: true,
-        };
+        // Usar IDs numéricos reais das sources nativas
+        const nativeSources = (res.sources && res.sources.length > 0) ? res.sources : (extData?.sources || []);
 
-        if (existingIdx >= 0) {
-          installed[existingIdx] = newSource;
-        } else {
-          installed.push(newSource);
+        for (const src of nativeSources) {
+          const realId = String(src.id || hashCode(pkg + (src.name || '')));
+          const existingIdx = installed.findIndex((s: any) => s.id === realId || s.pkg === pkg);
+          const newSource = {
+            id: realId,
+            nativeSourceId: realId,
+            name: src.name || cleanName,
+            version: extData?.version || '1.0.0',
+            lang: src.lang || lang,
+            iconUrl: icon,
+            baseUrl: src.baseUrl || src.homeUrl || '',
+            isEnabled: true,
+            isNsfw: Boolean(extData?.isNsfw),
+            hasPopular: true,
+            hasLatest: true,
+            supportsSearch: true,
+            pkg,
+            repoUrl: repoUrl || extData?.repoUrl || '',
+            isNative: true,
+          };
+          if (existingIdx >= 0) {
+            installed[existingIdx] = newSource;
+          } else {
+            installed.push(newSource);
+          }
         }
+
+        // Se nenhuma source foi registrada (extData sem sources), registra pelo menos uma
+        if (nativeSources.length === 0) {
+          const fallbackId = String(hashCode(pkg));
+          const existingIdx = installed.findIndex((s: any) => s.pkg === pkg);
+          const newSource = {
+            id: fallbackId,
+            nativeSourceId: fallbackId,
+            name: cleanName,
+            version: extData?.version || '1.0.0',
+            lang,
+            iconUrl: icon,
+            baseUrl: extData?.sources?.[0]?.baseUrl || '',
+            isEnabled: true,
+            isNsfw: Boolean(extData?.isNsfw),
+            hasPopular: true,
+            hasLatest: true,
+            supportsSearch: true,
+            pkg,
+            repoUrl: repoUrl || extData?.repoUrl || '',
+            isNative: true,
+          };
+          if (existingIdx >= 0) {
+            installed[existingIdx] = newSource;
+          } else {
+            installed.push(newSource);
+          }
+        }
+
         saveLocalInstalledSources(installed);
-        return { success: true, message: `Extensão ${cleanName} instalada e executada nativamente!` };
+        return { success: true, message: `Extensão ${cleanName} instalada e carregada nativamente!` };
       } catch (err: any) {
         console.error('Falha ao instalar extensão nativa:', err);
       }
@@ -845,29 +910,48 @@ export const api = {
 
   // Manga
   getManga: async (id: string, sourceId?: string) => {
+    // MangaDex: usa diretamente
+    if (!sourceId || sourceId === 'mangadex') {
+      try {
+        return await getMangaDexDetails(id);
+      } catch (e: any) {
+        throw new Error(`MangaDex: ${e.message}`);
+      }
+    }
+    // Android nativo
+    if (await checkIsNative()) {
+      try {
+        const nat = await TachiyomiNative.getMangaDetails({ sourceId, mangaUrl: id });
+        if (nat && nat.title) return nat;
+        throw new Error(`Extensão "${sourceId}" não retornou detalhes.`);
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao buscar detalhes: ${e.message}`);
+      }
+    }
+    // Servidor
     try {
       return await request<any>(`/manga/${id}`);
     } catch {
-      if (sourceId && (await checkIsNative())) {
-        try {
-          const nat = await TachiyomiNative.getMangaDetails({ sourceId, mangaUrl: id });
-          if (nat && nat.title) return nat;
-        } catch {}
-      }
-      return getMangaDexDetails(id);
+      throw new Error(`Mangá não encontrado. Fonte "${sourceId}" indisponível.`);
     }
   },
   getChapters: async (mangaId: string, sourceId?: string) => {
+    if (!sourceId || sourceId === 'mangadex') {
+      return getMangaDexChapters(mangaId);
+    }
+    if (await checkIsNative()) {
+      try {
+        const nat = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
+        if (nat?.chapters?.length > 0) return nat.chapters;
+        return [];
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao buscar capítulos: ${e.message}`);
+      }
+    }
     try {
       return await request<any[]>(`/manga/${mangaId}/chapters`);
     } catch {
-      if (sourceId && (await checkIsNative())) {
-        try {
-          const nat = await TachiyomiNative.getChapterList({ sourceId, mangaUrl: mangaId });
-          if (nat?.chapters?.length > 0) return nat.chapters;
-        } catch {}
-      }
-      return getMangaDexChapters(mangaId);
+      throw new Error(`Capítulos não disponíveis. Fonte "${sourceId}" indisponível.`);
     }
   },
   refreshManga: (mangaId: string) => request<any>(`/manga/${mangaId}/refresh`, { method: 'POST' }),
@@ -910,24 +994,30 @@ export const api = {
 
   // Chapters
   getPages: async (chapterId: string, sourceId?: string, mangaId?: string) => {
+    if (!sourceId || sourceId === 'mangadex') {
+      return getMangaDexPages(chapterId);
+    }
+    if (await checkIsNative()) {
+      // Tenta offline primeiro
+      if (mangaId) {
+        try {
+          const offline = await TachiyomiNative.getOfflinePages({ sourceId, mangaId, chapterId });
+          if (offline?.pages?.length > 0) return offline;
+        } catch {}
+      }
+      // Busca online via extensão nativa
+      try {
+        const nat = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
+        if (nat?.pages?.length > 0) return nat;
+        throw new Error(`Extensão "${sourceId}" não retornou páginas.`);
+      } catch (e: any) {
+        throw new Error(`[${sourceId}] Falha ao buscar páginas: ${e.message}`);
+      }
+    }
     try {
       return await request<any>(`/chapters/${chapterId}/pages`);
     } catch {
-      if (sourceId && mangaId && (await checkIsNative())) {
-        try {
-          const offline = await TachiyomiNative.getOfflinePages({ sourceId, mangaId, chapterId });
-          if (offline?.pages?.length > 0) {
-            return offline;
-          }
-        } catch {}
-      }
-      if (sourceId && (await checkIsNative())) {
-        try {
-          const nat = await TachiyomiNative.getPageList({ sourceId, chapterUrl: chapterId });
-          if (nat?.pages?.length > 0) return nat;
-        } catch {}
-      }
-      return getMangaDexPages(chapterId);
+      throw new Error(`Páginas não disponíveis. Fonte "${sourceId}" indisponível.`);
     }
   },
   updateProgress: async (chapterId: string, page: number, totalPages: number, isRead: boolean) => {
@@ -1045,5 +1135,119 @@ export const api = {
   updateSettings: (settings: any) => request<any>('/settings', { method: 'PUT', body: JSON.stringify(settings) }),
 
   // Updates
-  checkUpdates: () => request<any>('/updates/check', { method: 'POST' }),
+  checkUpdates: async () => {
+    // Verifica atualizações localmente — sem servidor
+    const lib = getLocalLibrary();
+    const isNative = await checkIsNative();
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    for (const manga of lib) {
+      const srcId = manga.sourceId;
+      if (!srcId) continue;
+
+      try {
+        let newChapters: any[] = [];
+
+        if (srcId === 'mangadex') {
+          const fetched = await getMangaDexChapters(manga.id);
+          newChapters = fetched || [];
+        } else if (isNative) {
+          const res = await TachiyomiNative.getChapterList({ sourceId: srcId, mangaUrl: manga.id });
+          newChapters = res.chapters || [];
+        } else {
+          // Sem servidor e sem nativo: pula
+          continue;
+        }
+
+        const storedIds = new Set((manga.chapters || []).map((c: any) => String(c.id || c.url || c.sourceChapterId)));
+        const fresh = newChapters.filter((c: any) => !storedIds.has(String(c.id || c.url || c.sourceChapterId)));
+
+        if (fresh.length > 0) {
+          // Atualiza biblioteca local com novos capítulos
+          const updated = { ...manga, chapters: [...(manga.chapters || []), ...fresh] };
+          results.push({
+            mangaId: manga.id,
+            title: manga.title,
+            newChaptersCount: fresh.length,
+            newChapters: fresh,
+          });
+          // Persiste atualização na biblioteca local
+          const currentLib = getLocalLibrary();
+          const idx = currentLib.findIndex((m: any) => m.id === manga.id);
+          if (idx >= 0) {
+            currentLib[idx] = updated;
+            saveLocalLibrary(currentLib);
+          }
+        }
+      } catch (e: any) {
+        errors.push({ mangaId: manga.id, title: manga.title, error: e.message });
+      }
+    }
+
+    return {
+      updatedManga: results,
+      errors,
+      checkedAt: new Date().toISOString(),
+      totalChecked: lib.length,
+      totalUpdated: results.length,
+      message: results.length > 0
+        ? `${results.length} obra(s) com novos capítulos!`
+        : 'Sua biblioteca está atualizada.',
+    };
+  },
+
+  checkExtensionUpdates: async () => {
+    const installed = getLocalInstalledSources();
+    const repos = getLocalRepositories().filter((r: any) => r.enabled);
+    const updates: any[] = [];
+
+    await Promise.allSettled(repos.map(async (repo: any) => {
+      try {
+        const url = normalizeRepoUrl(repo.url);
+        const res = await fetch(url, { cache: 'default' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const exts: any[] = data.extensionList?.extensions || (Array.isArray(data) ? data : []);
+        for (const ext of exts) {
+          const pkg = ext.packageName || ext.pkg || '';
+          const local = installed.find((s: any) => s.pkg === pkg);
+          if (local && ext.versionName && ext.versionName !== local.version) {
+            updates.push({
+              pkg,
+              name: ext.name || local.name,
+              currentVersion: local.version,
+              newVersion: ext.versionName,
+              apkUrl: ext.resources?.apkUrl || (ext.apk ? `${url.substring(0, url.lastIndexOf('/'))}/apk/${ext.apk}` : ''),
+              repoName: repo.name,
+            });
+          }
+        }
+      } catch {}
+    }));
+
+    return { updates, totalUpdates: updates.length };
+  },
+
+  checkAppUpdate: async () => {
+    try {
+      const res = await fetch('https://api.github.com/repos/AlefLorenzo/OmniYomi/releases/latest', {
+        headers: { 'Accept': 'application/vnd.github.v3+json' },
+      });
+      if (!res.ok) throw new Error(`GitHub API erro ${res.status}`);
+      const data = await res.json();
+      const latestTag = data.tag_name || '';
+      const latestVersion = latestTag.replace(/^v/, '');
+      const apkAsset = (data.assets || []).find((a: any) => a.name?.endsWith('.apk'));
+      return {
+        latestVersion,
+        releaseUrl: data.html_url || '',
+        apkUrl: apkAsset?.browser_download_url || '',
+        releaseNotes: data.body || '',
+        publishedAt: data.published_at || '',
+      };
+    } catch (e: any) {
+      throw new Error(`Falha ao verificar atualizações do app: ${e.message}`);
+    }
+  },
 };
