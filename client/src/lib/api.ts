@@ -667,7 +667,12 @@ const DEFAULT_POPULAR_SOURCES = [
 ];
 
 export const api = {
-  health: () => request<{ status: string; version: string; app: string }>('/health'),
+  health: async () => {
+    if (await checkIsNative()) {
+      return { status: 'ok', version: '1.1.7', app: 'OmniYomi Android Standalone' };
+    }
+    return request<{ status: string; version: string; app: string }>('/health');
+  },
 
   // Sources
   getSources: async () => {
@@ -811,6 +816,26 @@ export const api = {
     });
   },
   globalSearch: async (q: string) => {
+    if (await checkIsNative()) {
+      const sources = await api.getSources();
+      const selected = sources.filter((source: any) => source.id === 'mangadex' || (source.isNative && source.isEnabled !== false));
+      const results = await Promise.allSettled(
+        selected.map(async (source: any) => ({
+          sourceId: String(source.id),
+          sourceName: source.name,
+          ...(await api.searchSource(String(source.id), q, 1)),
+        }))
+      );
+      return {
+        query: q,
+        results: results
+          .filter((item: any) => item.status === 'fulfilled')
+          .map((item: any) => (item as PromiseFulfilledResult<any>).value),
+        errors: results
+          .filter((item: any) => item.status === 'rejected')
+          .map((item: any) => String((item as PromiseRejectedResult).reason?.message || 'Falha na fonte')),
+      };
+    }
     try {
       return await request<any>(`/sources/search/global?q=${encodeURIComponent(q)}`);
     } catch {
@@ -819,6 +844,22 @@ export const api = {
     }
   },
   deduplicatedSearch: async (q: string) => {
+    if (await checkIsNative()) {
+      const aggregate = await api.globalSearch(q);
+      const groups = new Map<string, any>();
+      for (const result of aggregate.results || []) {
+        for (const manga of result.manga || []) {
+          const key = String(manga.title || manga.name || '').trim().toLocaleLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, ' ');
+          if (!key) continue;
+          const existing = groups.get(key);
+          const entry = { ...manga, sourceId: result.sourceId, sourceName: result.sourceName };
+          if (existing) existing.sources.push(entry);
+          else groups.set(key, { canonical: entry, sources: [entry] });
+        }
+      }
+      const entries = Array.from(groups.values());
+      return { query: q, total: entries.length, entries, errors: aggregate.errors || [] };
+    }
     try {
       return await request<any>(`/sources/search/deduplicated?q=${encodeURIComponent(q)}`);
     } catch {
@@ -826,12 +867,28 @@ export const api = {
       return { query: q, total: res.manga.length, entries: res.manga.map((m: any) => ({ canonical: m, sources: [m] })) };
     }
   },
-  getFlareSolverrStatus: () => request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status'),
+  getFlareSolverrStatus: async () => {
+    if (await checkIsNative()) {
+      return { available: false, message: 'O APK não usa FlareSolverr externo. Desafios Cloudflare compatíveis são tratados pelo WebView local.' };
+    }
+    return request<{ available: boolean; message: string; version?: string }>('/sources/flaresolverr/status');
+  },
 
   // Extensions & Repos
-  getAvailableExtensions: () => request<any[]>('/extensions/available'),
-  uninstallExtension: (id: string) => request<any>(`/extensions/${id}`, { method: 'DELETE' }),
+  getAvailableExtensions: async () => {
+    if (await checkIsNative()) return (await api.getStoreExtensions()).extensions;
+    return request<any[]>('/extensions/available');
+  },
+  uninstallExtension: async (id: string) => {
+    if (await checkIsNative()) {
+      const source = getLocalInstalledSources().find((item: any) => String(item.id) === String(id) || item.pkg === id);
+      const pkg = source?.pkg || id;
+      return api.uninstallExtracted(pkg);
+    }
+    return request<any>(`/extensions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
   getRepos: async () => {
+    if (await checkIsNative()) return getLocalRepositories();
     try {
       const serverRepos = await request<any[]>('/extensions/repos');
       if (Array.isArray(serverRepos) && serverRepos.length > 0) return serverRepos;
@@ -839,6 +896,23 @@ export const api = {
     return getLocalRepositories();
   },
   addRepo: async (url: string, name?: string) => {
+    if (await checkIsNative()) {
+      const repos = getLocalRepositories();
+      const cleanUrl = url.trim();
+      const normalized = normalizeRepoUrl(cleanUrl);
+      const existing = repos.find((repo: any) => repo.url === normalized || repo.originalUrl === cleanUrl);
+      if (existing) existing.enabled = true;
+      else repos.push({
+        id: 'repo_' + Date.now(),
+        name: name?.trim() || new URL(cleanUrl).hostname,
+        url: normalized,
+        originalUrl: cleanUrl,
+        enabled: true,
+        lastSynced: Date.now(),
+      });
+      saveLocalRepositories(repos);
+      return { success: true, message: 'Repositório adicionado localmente.' };
+    }
     try {
       return await request<any>('/extensions/repos', { method: 'POST', body: JSON.stringify({ url, name }) });
     } catch {
@@ -864,6 +938,11 @@ export const api = {
     }
   },
   deleteRepo: async (url: string) => {
+    if (await checkIsNative()) {
+      const repos = getLocalRepositories().filter((repo: any) => repo.url !== url && repo.originalUrl !== url);
+      saveLocalRepositories(repos);
+      return { success: true };
+    }
     try {
       return await request<any>('/extensions/repos', { method: 'DELETE', body: JSON.stringify({ url }) });
     } catch {
@@ -873,6 +952,13 @@ export const api = {
     }
   },
   toggleRepo: async (url: string, enabled: boolean) => {
+    if (await checkIsNative()) {
+      const repos = getLocalRepositories();
+      const repo = repos.find((item: any) => item.url === url || item.originalUrl === url);
+      if (repo) repo.enabled = enabled;
+      saveLocalRepositories(repos);
+      return { success: true, enabled };
+    }
     try {
       return await request<any>('/extensions/repos/toggle', { method: 'POST', body: JSON.stringify({ url, enabled }) });
     } catch {
@@ -1029,7 +1115,7 @@ export const api = {
     // Só registramos fontes retornadas pelo ExtensionManager após carregamento real.
     if (await checkIsNative()) {
       const declaredLib = String(extData?.extensionLib || '').trim();
-      if (declaredLib && !declaredLib.startsWith('1.4')) {
+      if (declaredLib && !['1.4', '1.6'].includes(declaredLib)) {
         throw new Error(
           `A extensão ${pkg} exige TachiyomiX ${declaredLib}. Esta versão do OmniYomi só executa a ABI legada 1.4; a extensão não será marcada como instalada.`
         );
@@ -1346,6 +1432,15 @@ export const api = {
     }
   },
   updateProgress: async (chapterId: string, page: number, totalPages: number, isRead: boolean) => {
+    if (await checkIsNative()) {
+      const history = getLocalHistory();
+      const existing = history.findIndex((item: any) => String(item.chapterId) === String(chapterId));
+      const entry = { chapterId, page, totalPages, isRead, readAt: new Date().toISOString() };
+      if (existing >= 0) history[existing] = { ...history[existing], ...entry };
+      else history.unshift(entry);
+      saveLocalHistory(history.slice(0, 100));
+      return { success: true };
+    }
     try {
       return await request<any>(`/chapters/${chapterId}/progress`, { method: 'POST', body: JSON.stringify({ page, totalPages, isRead }) });
     } catch {
@@ -1481,6 +1576,12 @@ export const api = {
 
   // Library
   getLibrary: async (category?: string, search?: string) => {
+    if (await checkIsNative()) {
+      let library = getLocalLibrary();
+      if (category && category !== 'all') library = library.filter((item: any) => item.categoryId === category);
+      if (search) library = library.filter((item: any) => item.title?.toLowerCase().includes(search.toLowerCase()));
+      return library;
+    }
     try {
       const params = new URLSearchParams();
       if (category && category !== 'all') params.append('category', category);
@@ -1531,6 +1632,7 @@ export const api = {
 
   // History
   getHistory: async (limit = 50) => {
+    if (await checkIsNative()) return getLocalHistory().slice(0, limit);
     try {
       return await request<any[]>(`/history?limit=${limit}`);
     } catch {
@@ -1538,6 +1640,10 @@ export const api = {
     }
   },
   clearHistory: async () => {
+    if (await checkIsNative()) {
+      saveLocalHistory([]);
+      return { success: true };
+    }
     try {
       return await request<any>('/history', { method: 'DELETE' });
     } catch {
