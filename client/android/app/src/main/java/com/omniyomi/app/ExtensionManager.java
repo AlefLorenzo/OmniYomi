@@ -127,14 +127,17 @@ public class ExtensionManager {
         if (rawLibVersion == null) rawLibVersion = meta.get("tachiyomix.extensionLib");
         String extensionLib = rawLibVersion == null ? "" : String.valueOf(rawLibVersion);
         if (!extensionLib.isEmpty()) {
+            String[] versionParts = extensionLib.split("\\.");
             try {
-                double libVersion = Double.parseDouble(extensionLib);
-                if (Math.abs(libVersion - 1.4d) > 0.0001d && Math.abs(libVersion - 1.6d) > 0.0001d) {
+                int major = Integer.parseInt(versionParts[0]);
+                int minor = versionParts.length > 1 ? Integer.parseInt(versionParts[1]) : 0;
+                boolean supported = major == 1 && (minor == 4 || minor == 6);
+                if (!supported) {
                     throw new IllegalStateException("API de extensão não suportada: " + extensionLib
-                        + ". O OmniYomi suporta as ABIs Mihon 1.4 e 1.6.");
+                        + ". O runtime declara suporte às ABIs Mihon 1.4 e 1.6.");
                 }
             } catch (NumberFormatException e) {
-                throw new IllegalStateException("Metadado tachiyomix.extensionLib inválido: " + extensionLib, e);
+                throw new IllegalStateException("Metadado tachiyomi.extensionLib inválido: " + extensionLib, e);
             }
         }
 
