@@ -457,7 +457,7 @@ public class ExtensionManager {
             sanitize(sourceId) + "/" + sanitize(mangaId) + "/" + sanitize(chapterId));
         if (!chDir.exists()) chDir.mkdirs();
 
-        OkHttpClient client = NetworkHelper.getClient();
+        OkHttpClient client = NetworkHelper.getDefaultClient();
         int downloaded = 0;
 
         for (int i = 0; i < imageUrls.size(); i++) {
