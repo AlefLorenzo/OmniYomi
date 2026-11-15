@@ -139,6 +139,19 @@ public abstract class HttpSource implements CatalogueSource {
         ).execute();
     }
 
+    /** Kotlin default-argument bridge for getImage(page, existingSize = 0L). */
+    public static Object getImage$default(
+        HttpSource receiver,
+        Page page,
+        long existingSize,
+        Continuation<? super Response> continuation,
+        int mask,
+        Object marker
+    ) throws Exception {
+        if ((mask & 2) != 0) existingSize = 0L;
+        return receiver.getImage(page, existingSize, continuation);
+    }
+
     public String getMangaUrl(SManga manga) {
         return mangaDetailsRequest(manga).url().toString();
     }
