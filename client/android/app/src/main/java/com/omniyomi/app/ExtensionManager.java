@@ -9,6 +9,7 @@ import android.util.Log;
 
 import dalvik.system.PathClassLoader;
 import eu.kanade.tachiyomi.source.CatalogueSource;
+import eu.kanade.tachiyomi.source.online.HttpSource;
 import eu.kanade.tachiyomi.source.Source;
 import eu.kanade.tachiyomi.source.SourceFactory;
 import eu.kanade.tachiyomi.source.model.*;
@@ -492,6 +493,101 @@ public class ExtensionManager {
 
         Log.i(TAG, "Download concluído: " + downloaded + "/" + imageUrls.size() + " páginas");
         return downloaded > 0;
+    }
+
+    /**
+     * Baixa diretamente da extensão para usar os headers/cliente HTTP específicos
+     * da fonte. Evita perder Referer, cookies ou User-Agent próprios ao baixar imagens.
+     */
+    public boolean downloadChapterFromSource(String sourceId, String mangaId, String chapterId) throws Exception {
+        Source source = requireSource(sourceId);
+        SChapter chapter = SChapter.create();
+        chapter.setUrl(chapterId);
+        List<Page> pages = source.fetchPageList(chapter).toBlocking().first();
+        if (pages == null || pages.isEmpty()) {
+            throw new IllegalStateException("A fonte não retornou páginas para o capítulo.");
+        }
+
+        File chapterDir = new File(downloadsDir,
+            sanitize(sourceId) + "/" + sanitize(mangaId) + "/" + sanitize(chapterId));
+        if (!chapterDir.exists() && !chapterDir.mkdirs()) {
+            throw new IOException("Não foi possível criar a pasta local do capítulo.");
+        }
+
+        HttpSource httpSource = source instanceof HttpSource ? (HttpSource) source : null;
+        OkHttpClient client = httpSource != null ? httpSource.getClient() : NetworkHelper.getClient();
+        int downloaded = 0;
+
+        for (int i = 0; i < pages.size(); i++) {
+            Page page = pages.get(i);
+            String imageUrl = page.getImageUrl();
+            if (imageUrl == null || imageUrl.trim().isEmpty()) imageUrl = page.getUrl();
+            if (imageUrl == null || imageUrl.trim().isEmpty()) {
+                Log.w(TAG, "Página " + (i + 1) + " sem URL de imagem; ignorada.");
+                continue;
+            }
+
+            String extension = imageExtension(imageUrl);
+            File pageFile = new File(chapterDir, String.format(Locale.US, "%04d%s", i + 1, extension));
+            if (pageFile.isFile() && pageFile.length() > 0) {
+                downloaded++;
+                continue;
+            }
+
+            Request request;
+            if (httpSource != null) {
+                if (page.getImageUrl() != null && !page.getImageUrl().trim().isEmpty()) {
+                    request = new Request.Builder()
+                        .url(page.getImageUrl())
+                        .headers(httpSource.getHeaders())
+                        .build();
+                } else {
+                    request = httpSource.imageUrlRequest(page);
+                }
+            } else {
+                request = new Request.Builder()
+                    .url(imageUrl)
+                    .header("User-Agent", "Mozilla/5.0 OmniYomi-Android")
+                    .header("Referer", imageUrl)
+                    .build();
+            }
+
+            File temporary = new File(chapterDir, pageFile.getName() + ".part");
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) {
+                    throw new IOException("HTTP " + response.code() + " ao baixar página " + (i + 1));
+                }
+                try (InputStream in = response.body().byteStream();
+                     OutputStream out = new BufferedOutputStream(new FileOutputStream(temporary))) {
+                    byte[] buffer = new byte[8192];
+                    int length;
+                    while ((length = in.read(buffer)) != -1) out.write(buffer, 0, length);
+                    out.flush();
+                }
+                if (!temporary.renameTo(pageFile)) {
+                    throw new IOException("Não foi possível finalizar o arquivo da página " + (i + 1));
+                }
+                downloaded++;
+            } catch (IOException e) {
+                if (temporary.exists()) temporary.delete();
+                Log.e(TAG, "Falha ao baixar página " + (i + 1) + " de " + source.getName(), e);
+                throw e;
+            }
+        }
+
+        Log.i(TAG, "Download nativo concluído: " + downloaded + "/" + pages.size()
+            + " páginas — " + source.getName());
+        return downloaded == pages.size();
+    }
+
+    private String imageExtension(String url) {
+        String clean = url.toLowerCase(Locale.ROOT);
+        int query = clean.indexOf('?');
+        if (query >= 0) clean = clean.substring(0, query);
+        if (clean.endsWith(".png")) return ".png";
+        if (clean.endsWith(".webp")) return ".webp";
+        if (clean.endsWith(".jpeg")) return ".jpeg";
+        return ".jpg";
     }
 
     /** Lista os capítulos armazenados fisicamente no aparelho. */
