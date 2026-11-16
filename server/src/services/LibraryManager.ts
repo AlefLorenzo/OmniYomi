@@ -29,6 +29,13 @@ export class LibraryManager extends EventEmitter {
     }
   }
 
+  public stop(): void {
+    if (this.updateTimer) {
+      clearInterval(this.updateTimer);
+      this.updateTimer = null;
+    }
+  }
+
   public async addToLibrary(mangaId: string, categoryId: string = 'default'): Promise<Manga> {
     const existing = db.getMangaById(mangaId);
     if (!existing) {

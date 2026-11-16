@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Data directory at project root/data
-const DATA_DIR = path.resolve(__dirname, '../../../data');
+const DATA_DIR = path.resolve(process.env.OMNIYOMI_DATA_DIR || path.resolve(__dirname, '../../../data'));
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -757,6 +757,21 @@ export class AppDatabase {
 
   public deleteExtractedExtension(pkg: string): void {
     this.db.prepare('DELETE FROM extracted_extensions WHERE pkg = ?').run(pkg);
+  }
+
+  // --- Desktop lifecycle and SQLite durability ---
+  public checkpoint(): void {
+    if (!this.db.open) return;
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
+  public close(): void {
+    if (!this.db.open) return;
+    try {
+      this.checkpoint();
+    } finally {
+      this.db.close();
+    }
   }
 
   // --- Helpers ---

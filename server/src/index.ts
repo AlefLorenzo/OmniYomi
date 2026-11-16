@@ -3,7 +3,7 @@ import http from 'http';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { db } from './db/database.js';
 import { setupWebSocket } from './websocket.js';
 import { sourcesRouter } from './routes/sourcesRouter.js';
@@ -18,6 +18,8 @@ import { updatesRouter } from './routes/updatesRouter.js';
 import { proxyRouter } from './routes/proxyRouter.js';
 import { suwayomiService } from './services/SuwayomiService.js';
 import { extensionManager } from './sources/ExtensionManager.js';
+import { downloadManager } from './services/DownloadManager.js';
+import { libraryManager } from './services/LibraryManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,24 +67,88 @@ if (fs.existsSync(clientDist)) {
 }
 
 // Setup WebSocket server
-setupWebSocket(server);
+const webSocketServer = setupWebSocket(server);
 
-// Start listening
+// Start/stop lifecycle is explicit so the desktop launcher can manage the backend.
 const settings = db.getSettings();
 const PORT = Number(process.env.PORT || settings.port || 4567);
+const HOST = process.env.HOST || (process.env.OMNIYOMI_DESKTOP === '1' ? '127.0.0.1' : '0.0.0.0');
+let shuttingDown = false;
 
-server.listen(PORT, '0.0.0.0', async () => {
-  console.log(`====================================================`);
-  console.log(`  OmniYomi Server executando com sucesso!`);
-  console.log(`  URL: http://localhost:${PORT}`);
-  console.log(`  WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`====================================================`);
+function startServer(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once('error', onError);
+    server.listen(PORT, HOST, () => {
+      server.off('error', onError);
+      console.log('====================================================');
+      console.log('  OmniYomi Server executando com sucesso!');
+      console.log('  URL: http://127.0.0.1:' + PORT);
+      console.log('  WebSocket: ws://127.0.0.1:' + PORT + '/ws');
+      console.log('====================================================');
 
-  // Inicializar o runtime de extensões Tachiyomi Suwayomi
-  suwayomiService.ensureRunning().then(async (ok) => {
-    if (ok) {
-      console.log('[Motor Tachiyomi] Suwayomi DEX runtime conectado com sucesso!');
-      await extensionManager.syncSuwayomiExtensions();
+      if (process.env.OMNIYOMI_DISABLE_SUWAYOMI !== '1') {
+        suwayomiService.ensureRunning().then(async (ok) => {
+          if (ok) {
+            console.log('[Motor Tachiyomi] Suwayomi DEX runtime conectado com sucesso!');
+            await extensionManager.syncSuwayomiExtensions();
+          }
+        }).catch((error) => console.warn('[Motor Tachiyomi] Runtime opcional indisponível:', error?.message || error));
+      }
+      resolve();
+    });
+  });
+}
+
+async function shutdownServer(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('[OmniYomi] Encerramento seguro solicitado.');
+
+  libraryManager.stop();
+  const downloadsDrained = await downloadManager.shutdown();
+  await suwayomiService.stop();
+
+  for (const socket of webSocketServer.clients) {
+    try { socket.terminate(); } catch { /* ignore closed sockets */ }
+  }
+  try { webSocketServer.close(); } catch { /* already closed */ }
+
+  if (server.listening) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  if (downloadsDrained) {
+    try {
+      db.close();
+      console.log('[OmniYomi] Banco SQLite sincronizado e fechado.');
+    } catch (error: any) {
+      console.error('[OmniYomi] Falha ao fechar o banco SQLite:', error?.message || error);
+      throw error;
     }
+  } else {
+    console.error('[OmniYomi] Ainda há downloads ativos; o processo encerrará e o SQLite recuperará o WAL na próxima inicialização.');
+  }
+}
+
+process.once('SIGTERM', () => {
+  void shutdownServer().then(() => process.exit(0)).catch((error) => {
+    console.error('[OmniYomi] Falha no encerramento:', error);
+    process.exit(1);
   });
 });
+process.once('SIGINT', () => {
+  void shutdownServer().then(() => process.exit(0)).catch((error) => {
+    console.error('[OmniYomi] Falha no encerramento:', error);
+    process.exit(1);
+  });
+});
+
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+const isDirectExecution = Boolean(entryPath) && pathToFileURL(entryPath).href === import.meta.url;
+if (isDirectExecution) {
+  startServer().catch((error) => {
+    console.error('[OmniYomi] Não foi possível iniciar o servidor:', error);
+    process.exitCode = 1;
+  });
+}

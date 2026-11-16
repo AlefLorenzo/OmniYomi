@@ -10,8 +10,21 @@ export class SuwayomiService {
   private process: ChildProcess | null = null;
   private isStarting: boolean = false;
 
-  private suwayomiDir: string =
-    'C:\\Users\\Buggynay\\Downloads\\Suwayomi-Server-v2.4.2366-windows-x64\\Suwayomi-Server-v2.4.2366-windows-x64';
+  private get suwayomiDir(): string | null {
+    const configured = process.env.SUWAYOMI_HOME || process.env.OMNIYOMI_SUWAYOMI_HOME;
+    if (configured && configured.trim()) return path.resolve(configured.trim());
+
+    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    const candidates = [
+      resourcesPath ? path.join(resourcesPath, 'suwayomi') : null,
+      path.resolve(process.cwd(), 'runtime', 'suwayomi'),
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    return candidates.find((candidate) =>
+      fs.existsSync(path.join(candidate, 'bin', 'Suwayomi-Server.jar')) &&
+      fs.existsSync(path.join(candidate, 'jre', 'bin', 'java.exe'))
+    ) || candidates[0] || null;
+  }
 
   public static getInstance(): SuwayomiService {
     if (!SuwayomiService.instance) {
@@ -51,11 +64,18 @@ export class SuwayomiService {
     console.log('[SuwayomiService] Inicializando runtime Suwayomi na porta 4568...');
 
     try {
-      const javaPath = path.join(this.suwayomiDir, 'jre', 'bin', 'java.exe');
-      const jarPath = path.join(this.suwayomiDir, 'bin', 'Suwayomi-Server.jar');
+      const runtimeDir = this.suwayomiDir;
+      if (!runtimeDir) {
+        console.warn('[SuwayomiService] Runtime opcional não configurado; o restante do OmniYomi continuará disponível.');
+        this.isStarting = false;
+        return false;
+      }
+
+      const javaPath = path.join(runtimeDir, 'jre', 'bin', 'java.exe');
+      const jarPath = path.join(runtimeDir, 'bin', 'Suwayomi-Server.jar');
 
       if (!fs.existsSync(javaPath) || !fs.existsSync(jarPath)) {
-        console.error('[SuwayomiService] Binários do Suwayomi não encontrados em', this.suwayomiDir);
+        console.warn('[SuwayomiService] Runtime Suwayomi não encontrado em', runtimeDir);
         this.isStarting = false;
         return false;
       }
@@ -74,8 +94,12 @@ export class SuwayomiService {
         windowsHide: true,
       });
 
-      this.process.on('error', (err) => {
+      const ownedProcess = this.process;
+      ownedProcess.on('error', (err) => {
         console.error('[SuwayomiService] Erro no subprocesso Java:', err.message);
+      });
+      ownedProcess.on('exit', () => {
+        if (this.process === ownedProcess) this.process = null;
       });
 
       // Wait until responsive
@@ -93,6 +117,35 @@ export class SuwayomiService {
 
     this.isStarting = false;
     return false;
+  }
+
+  public async stop(): Promise<void> {
+    const child = this.process;
+    if (!child) return;
+
+    this.process = null;
+    if (child.exitCode !== null) return;
+
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (child.exitCode === null) {
+          try { child.kill(); } catch { /* process may already have exited */ }
+        }
+        resolve();
+      }, 8000);
+
+      child.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+
+      try {
+        child.kill();
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
   }
 
   public restGet(pathUrl: string): Promise<any> {

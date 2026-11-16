@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { pipeline } from 'stream/promises';
 // archiver removed - using native fs for archive creation
 import { fileURLToPath } from 'url';
 import { EventEmitter } from 'events';
@@ -16,6 +17,7 @@ export class DownloadManager extends EventEmitter {
   private activeWorkers = 0;
   private paused = false;
   private activeControllers: Map<string, AbortController> = new Map();
+  private shuttingDown = false;
 
   constructor() {
     super();
@@ -45,7 +47,29 @@ export class DownloadManager extends EventEmitter {
     return name.replace(/[\\/:*?"<>|]/g, '_').trim() || 'unnamed';
   }
 
+  public async shutdown(timeoutMs: number = 20000): Promise<boolean> {
+    this.shuttingDown = true;
+    this.paused = true;
+
+    for (const controller of this.activeControllers.values()) {
+      controller.abort();
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    while (this.activeWorkers > 0 && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (this.activeWorkers > 0) {
+      console.warn(`[DownloadManager] ${this.activeWorkers} download(s) ainda não finalizaram a interrupção segura.`);
+    }
+    return this.activeWorkers === 0;
+  }
+
   public async enqueue(chapter: Chapter, mangaTitle: string, coverUrl: string): Promise<DownloadItem> {
+    if (this.shuttingDown) {
+      throw new Error('O OmniYomi está encerrando e não aceita novos downloads.');
+    }
     // Check if already downloaded
     if (chapter.isDownloaded && chapter.downloadedPath && fs.existsSync(chapter.downloadedPath)) {
       throw new Error(`Capítulo "${chapter.title}" já se encontra baixado.`);
@@ -161,14 +185,14 @@ export class DownloadManager extends EventEmitter {
   }
 
   private async processQueue() {
-    if (this.paused || this.isProcessing) return;
+    if (this.paused || this.shuttingDown || this.isProcessing) return;
     this.isProcessing = true;
 
     try {
       const settings = db.getSettings();
       const maxConcurrency = Math.max(1, settings.concurrentDownloads || 2);
 
-      while (!this.paused && this.activeWorkers < maxConcurrency) {
+      while (!this.paused && !this.shuttingDown && this.activeWorkers < maxConcurrency) {
         const queue = db.getDownloads();
         const pending = queue.find(d => d.status === 'PENDING');
         if (!pending) break;
@@ -185,6 +209,8 @@ export class DownloadManager extends EventEmitter {
   }
 
   private async downloadChapter(item: DownloadItem) {
+    let downloadedPages = Math.max(0, item.downloadedPages || 0);
+    let totalPages = Math.max(0, item.totalPages || 0);
     const controller = new AbortController();
     this.activeControllers.set(item.chapterId, controller);
 
@@ -208,8 +234,8 @@ export class DownloadManager extends EventEmitter {
         throw new Error('Nenhuma página retornada pela fonte para este capítulo.');
       }
 
-      const totalPages = pages.length;
-      db.updateDownloadProgress(item.chapterId, 'DOWNLOADING', 0, totalPages);
+      totalPages = pages.length;
+      db.updateDownloadProgress(item.chapterId, 'DOWNLOADING', downloadedPages, totalPages);
 
       // 2. Prepare directory
       const baseDownloadDir = this.getDownloadPath();
@@ -222,8 +248,8 @@ export class DownloadManager extends EventEmitter {
         fs.mkdirSync(targetDir, { recursive: true });
       }
 
-      // 3. Download pages with resume capability and verification
-      let downloadedPages = 0;
+      // 3. Recount valid pages to rebuild progress reliably after interruption
+      downloadedPages = 0;
 
       for (let i = 0; i < pages.length; i++) {
         if (controller.signal.aborted) {
@@ -296,11 +322,13 @@ export class DownloadManager extends EventEmitter {
       });
 
     } catch (err: any) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && this.shuttingDown) {
+        db.updateDownloadProgress(item.chapterId, 'PENDING', downloadedPages, totalPages, 'Interrompido ao fechar o OmniYomi; continuará na próxima inicialização.');
+      } else if (controller.signal.aborted) {
         db.updateDownloadProgress(item.chapterId, 'CANCELLED', 0, 0, 'Cancelado');
       } else {
         console.error(`Erro no download do capítulo ${item.chapterId}:`, err.message);
-        db.updateDownloadProgress(item.chapterId, 'FAILED', 0, 0, err.message);
+        db.updateDownloadProgress(item.chapterId, 'FAILED', downloadedPages, totalPages, err.message);
       }
       this.emit('error', { chapterId: item.chapterId, error: err.message });
     } finally {
@@ -357,13 +385,20 @@ export class DownloadManager extends EventEmitter {
       signal,
     });
 
-    const writer = fs.createWriteStream(destPath);
-    res.data.pipe(writer);
-
-    return new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
+    const tempPath = `${destPath}.part-${process.pid}-${Date.now()}`;
+    try {
+      if (signal) {
+        await pipeline(res.data, fs.createWriteStream(tempPath), { signal });
+      } else {
+        await pipeline(res.data, fs.createWriteStream(tempPath));
+      }
+      fs.renameSync(tempPath, destPath);
+    } catch (error) {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch { /* ignore cleanup failures */ }
+      throw error;
+    }
   }
 
   // Verifies magic number headers for JPG, PNG, WEBP, GIF
