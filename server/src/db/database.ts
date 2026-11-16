@@ -18,6 +18,7 @@ const DB_PATH = path.join(DATA_DIR, 'omniyomi.db');
 
 export class AppDatabase {
   public db: DatabaseType;
+  private closed = false;
 
   constructor(dbPath: string = DB_PATH) {
     this.db = new Database(dbPath);
@@ -761,16 +762,17 @@ export class AppDatabase {
 
   // --- Desktop lifecycle and SQLite durability ---
   public checkpoint(): void {
-    if (!this.db.open) return;
+    if (this.closed) return;
     this.db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
   public close(): void {
-    if (!this.db.open) return;
+    if (this.closed) return;
     try {
       this.checkpoint();
     } finally {
       this.db.close();
+      this.closed = true;
     }
   }
 
