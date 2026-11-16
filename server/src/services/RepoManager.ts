@@ -358,15 +358,17 @@ export class RepoManager {
       const zip = new AdmZip(apkBuffer);
       const dexEntries = ['classes.dex', 'classes2.dex', 'classes3.dex']
         .map((name) => zip.getEntry(name))
-        .filter(Boolean);
-      if (dexEntries.length === 0 || !zip.getEntry('AndroidManifest.xml')) {
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      const manifestEntry = zip.getEntry('AndroidManifest.xml');
+      if (dexEntries.length === 0 || !manifestEntry) {
         throw new Error('O arquivo baixado não contém um AndroidManifest.xml e classes.dex válidos.');
       }
 
       fs.mkdirSync(stagingDir, { recursive: true });
-      for (const entry of [...dexEntries, zip.getEntry('AndroidManifest.xml')!]) {
+      for (const entry of dexEntries) {
         zip.extractEntryTo(entry, stagingDir, false, true);
       }
+      zip.extractEntryTo(manifestEntry, stagingDir, false, true);
 
       const name = metadata.name || pkg.split('.').pop() || pkg;
       const version = metadata.version || '1.0.0';
