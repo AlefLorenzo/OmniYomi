@@ -57,6 +57,9 @@ function getAppRoot() {
 }
 
 function getServerEntry() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'src', 'index.js');
+  }
   return path.join(getAppRoot(), 'dist', 'src', 'index.js');
 }
 

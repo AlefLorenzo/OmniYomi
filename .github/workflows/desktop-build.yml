@@ -31,9 +31,6 @@ jobs:
       - name: Install client dependencies
         run: npm --prefix client install
 
-      - name: Build frontend and backend
-        run: npm run build
-
       - name: Run desktop backend lifecycle smoke test
         run: npm run desktop:smoke
 
