@@ -1,0 +1,441 @@
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const net = require('net');
+
+const APP_NAME = 'OmniYomi Desktop';
+const DEFAULT_PORT = 4567;
+let launcherWindow = null;
+let appWindow = null;
+let backend = null;
+let backendOwned = false;
+let serverPort = DEFAULT_PORT;
+let serverUrl = null;
+let quitting = false;
+let allowQuit = false;
+let startPromise = null;
+let currentStatus = { state: 'stopped', message: 'Servidor desligado', port: null, url: null };
+const recentLogs = [];
+const MAX_LOG_LINES = 300;
+
+const localRoot = path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'OmniYomi');
+const dataDir = path.join(localRoot, 'data');
+const logsDir = path.join(localRoot, 'logs');
+const logFile = path.join(logsDir, 'desktop.log');
+
+function ensureDirectories() {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+function broadcast(channel, payload) {
+  if (launcherWindow && !launcherWindow.isDestroyed()) {
+    launcherWindow.webContents.send('omniyomi:' + channel, payload);
+  }
+}
+
+function log(level, message) {
+  const line = '[' + new Date().toISOString() + '] [' + level + '] ' + String(message);
+  recentLogs.push(line);
+  if (recentLogs.length > MAX_LOG_LINES) recentLogs.shift();
+  try {
+    ensureDirectories();
+    fs.appendFileSync(logFile, line + '\n', 'utf8');
+  } catch { /* logging must not crash the launcher */ }
+  broadcast('log', line);
+}
+
+function setStatus(state, message, extra = {}) {
+  currentStatus = { state, message, port: serverPort, url: serverUrl, ...extra };
+  broadcast('status', currentStatus);
+  log('STATUS', message);
+}
+
+function getAppRoot() {
+  return app.getAppPath();
+}
+
+function getServerEntry() {
+  return path.join(getAppRoot(), 'dist', 'src', 'index.js');
+}
+
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+  });
+}
+
+async function reserveFreePort(preferredPort) {
+  if (await isPortAvailable(preferredPort)) return preferredPort;
+  for (let port = preferredPort + 1; port <= preferredPort + 25; port++) {
+    if (await isPortAvailable(port)) return port;
+  }
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const selected = address && typeof address === 'object' ? address.port : preferredPort;
+      probe.close(() => resolve(selected));
+    });
+  });
+}
+
+async function getHealth(port, timeoutMs = 1200) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/health', { signal: controller.signal });
+    if (!response.ok) return null;
+    const json = await response.json();
+    if (json && json.status === 'ONLINE' && String(json.app || '').includes('OmniYomi')) return json;
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function migrateLegacyData() {
+  const legacyRoot = path.join(getAppRoot(), 'data');
+  const legacyDb = path.join(legacyRoot, 'omniyomi.db');
+  const targetDb = path.join(dataDir, 'omniyomi.db');
+  if (app.isPackaged || fs.existsSync(targetDb) || !fs.existsSync(legacyDb)) return false;
+
+  ensureDirectories();
+  log('INFO', 'Instalação antiga encontrada. Validando e migrando os dados locais.');
+  const Database = require('better-sqlite3');
+  const source = new Database(legacyDb, { readonly: true, fileMustExist: true });
+  try {
+    const integrity = source.pragma('integrity_check');
+    if (!Array.isArray(integrity) || integrity[0]?.integrity_check !== 'ok') {
+      throw new Error('O banco antigo não passou no integrity_check. O arquivo original foi preservado.');
+    }
+
+    const legacyDownloads = path.join(legacyRoot, 'downloads');
+    const targetDownloads = path.join(dataDir, 'downloads');
+    if (fs.existsSync(legacyDownloads) && !fs.existsSync(targetDownloads)) {
+      fs.cpSync(legacyDownloads, targetDownloads, { recursive: true, errorOnExist: true });
+    }
+    for (const folder of ['extensions', 'local_manga', 'cache']) {
+      const from = path.join(legacyRoot, folder);
+      const to = path.join(dataDir, folder);
+      if (fs.existsSync(from) && !fs.existsSync(to)) {
+        fs.cpSync(from, to, { recursive: true, errorOnExist: true });
+      }
+    }
+
+    await source.backup(targetDb);
+    const migrated = new Database(targetDb);
+    try {
+      migrated.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('downloadPath', targetDownloads);
+      migrated.pragma('wal_checkpoint(TRUNCATE)');
+    } finally {
+      migrated.close();
+    }
+    log('INFO', 'Migração dos dados locais concluída. O banco original foi mantido.');
+    return true;
+  } finally {
+    source.close();
+  }
+}
+
+function attachBackendLogs(child) {
+  const consume = (stream, level) => {
+    if (!stream) return;
+    let buffer = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) if (line.trim()) log(level, line);
+    });
+    stream.on('end', () => {
+      if (buffer.trim()) log(level, buffer);
+    });
+  };
+  consume(child.stdout, 'SERVER');
+  consume(child.stderr, 'SERVER-ERROR');
+}
+
+async function waitForServer(child, port, timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('O processo do backend encerrou antes de ficar saudável. Consulte os logs.');
+    }
+    const health = await getHealth(port);
+    if (health) return health;
+    await new Promise(resolve => setTimeout(resolve, 350));
+  }
+  throw new Error('O backend não respondeu ao endpoint /api/health na porta ' + port + ' dentro do limite de inicialização.');
+}
+
+async function startBackendInternal() {
+  if (backend && backend.exitCode === null) {
+    const health = await getHealth(serverPort);
+    if (!health) await waitForServer(backend, serverPort, 20000);
+    setStatus('online', 'OmniYomi está pronto para uso.');
+    if (!process.argv.includes('--smoke-test')) createAppWindow();
+    return { success: true, url: serverUrl, adopted: false };
+  }
+
+  ensureDirectories();
+  setStatus('starting', 'Verificando dados e preparando o ambiente...');
+  await migrateLegacyData();
+
+  const existing = await getHealth(DEFAULT_PORT);
+  if (existing) {
+    backend = null;
+    backendOwned = false;
+    serverPort = DEFAULT_PORT;
+    serverUrl = 'http://127.0.0.1:' + serverPort;
+    setStatus('online', 'Uma instância OmniYomi já está em execução. Ela será reutilizada sem ser encerrada por este inicializador.', { adopted: true });
+    if (!process.argv.includes('--smoke-test')) createAppWindow();
+    return { success: true, url: serverUrl, adopted: true };
+  }
+
+  serverPort = await reserveFreePort(DEFAULT_PORT);
+  serverUrl = 'http://127.0.0.1:' + serverPort;
+  const entry = getServerEntry();
+  if (!fs.existsSync(entry)) {
+    throw new Error('Backend compilado não encontrado. Execute o build de produção antes de iniciar o OmniYomi Desktop.');
+  }
+
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
+    PORT: String(serverPort),
+    HOST: '127.0.0.1',
+    OMNIYOMI_DESKTOP: '1',
+    OMNIYOMI_DATA_DIR: dataDir,
+    SUWAYOMI_HOME: process.env.SUWAYOMI_HOME || process.env.OMNIYOMI_SUWAYOMI_HOME || ''
+  };
+
+  log('INFO', 'Iniciando backend gerenciado em ' + serverUrl);
+  backend = spawn(process.execPath, [entry], {
+    cwd: getAppRoot(),
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    detached: false
+  });
+  backendOwned = true;
+  const child = backend;
+  attachBackendLogs(child);
+  child.on('error', (error) => log('ERROR', 'Falha ao iniciar backend: ' + error.message));
+  child.on('exit', (code, signal) => {
+    if (backend === child) {
+      backend = null;
+      if (!quitting) {
+        backendOwned = false;
+        setStatus('error', 'O backend encerrou inesperadamente (código ' + (code ?? 'n/a') + ', sinal ' + (signal ?? 'n/a') + ').');
+      }
+    }
+  });
+
+  setStatus('starting', 'Backend iniciado. Aguardando resposta de saúde...');
+  try {
+    await waitForServer(child, serverPort);
+  } catch (error) {
+    try { child.kill('SIGTERM'); } catch { /* ignore */ }
+    backend = null;
+    backendOwned = false;
+    throw error;
+  }
+
+  setStatus('online', 'OmniYomi está pronto para uso.');
+  if (!process.argv.includes('--smoke-test')) createAppWindow();
+  return { success: true, url: serverUrl, adopted: false };
+}
+
+function startBackend() {
+  if (startPromise) return startPromise;
+  startPromise = startBackendInternal().finally(() => { startPromise = null; });
+  return startPromise;
+}
+
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once('exit', onExit);
+  });
+}
+
+async function stopBackend() {
+  if (appWindow && !appWindow.isDestroyed()) appWindow.close();
+
+  if (!backend || !backendOwned) {
+    backend = null;
+    backendOwned = false;
+    if (currentStatus.state !== 'stopped') setStatus('stopped', 'Nenhum backend iniciado por este aplicativo será encerrado.');
+    return { success: true };
+  }
+
+  const child = backend;
+  setStatus('stopping', 'Encerrando downloads, serviços e banco de dados com segurança...');
+  try { child.kill('SIGTERM'); } catch (error) { log('ERROR', 'Falha ao solicitar encerramento: ' + error.message); }
+
+  let exited = await waitForExit(child, 35000);
+  if (!exited && child.exitCode === null) {
+    log('WARN', 'O encerramento gracioso excedeu 35 segundos. Solicitando término do processo gerenciado.');
+    try { child.kill(); } catch { /* process may already have exited */ }
+    exited = await waitForExit(child, 5000);
+  }
+
+  if (!exited) {
+    log('ERROR', 'O processo do backend não confirmou o encerramento.');
+    return { success: false, error: 'O backend não confirmou o encerramento.' };
+  }
+
+  if (backend === child) backend = null;
+  backendOwned = false;
+  setStatus('stopped', 'Servidor encerrado.');
+  return { success: true };
+}
+
+function createAppWindow() {
+  if (appWindow && !appWindow.isDestroyed()) {
+    appWindow.show();
+    appWindow.focus();
+    return;
+  }
+  if (!serverUrl) return;
+
+  appWindow = new BrowserWindow({
+    width: 1440,
+    height: 920,
+    minWidth: 900,
+    minHeight: 620,
+    backgroundColor: '#0f1117',
+    show: false,
+    title: 'OmniYomi',
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  appWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  appWindow.once('ready-to-show', () => { if (appWindow) appWindow.show(); });
+  appWindow.on('closed', () => { appWindow = null; });
+  appWindow.loadURL(serverUrl).catch((error) => {
+    log('ERROR', 'Não foi possível abrir a interface: ' + error.message);
+    dialog.showErrorBox('Falha ao abrir OmniYomi', error.message);
+  });
+}
+
+function createLauncherWindow() {
+  launcherWindow = new BrowserWindow({
+    width: 760,
+    height: 660,
+    minWidth: 680,
+    minHeight: 590,
+    resizable: true,
+    title: APP_NAME,
+    backgroundColor: '#10131c',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  launcherWindow.loadFile(path.join(__dirname, 'launcher.html'));
+  launcherWindow.on('closed', () => { launcherWindow = null; });
+}
+
+ipcMain.handle('omniyomi:get-state', () => ({
+  ...currentStatus,
+  dataDir,
+  logsDir,
+  logs: recentLogs
+}));
+ipcMain.handle('omniyomi:start', async () => {
+  try { return await startBackend(); }
+  catch (error) {
+    const message = error?.message || String(error);
+    setStatus('error', message);
+    return { success: false, error: message };
+  }
+});
+ipcMain.handle('omniyomi:stop', () => stopBackend());
+ipcMain.handle('omniyomi:open-app', async () => {
+  if (!serverUrl || !(await getHealth(serverPort))) {
+    return { success: false, error: 'Inicie o servidor antes de abrir o OmniYomi.' };
+  }
+  createAppWindow();
+  return { success: true };
+});
+ipcMain.handle('omniyomi:open-data', () => shell.openPath(dataDir));
+ipcMain.handle('omniyomi:open-logs', () => shell.openPath(logsDir));
+ipcMain.handle('omniyomi:show-log-file', () => shell.openPath(logFile));
+ipcMain.handle('omniyomi:quit', () => app.quit());
+
+app.on('before-quit', (event) => {
+  if (allowQuit) return;
+  event.preventDefault();
+  if (quitting) return;
+  quitting = true;
+  Promise.resolve(stopBackend()).catch((error) => log('ERROR', error.message)).finally(() => {
+    allowQuit = true;
+    app.quit();
+  });
+});
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (launcherWindow && !launcherWindow.isDestroyed()) {
+      if (launcherWindow.isMinimized()) launcherWindow.restore();
+      launcherWindow.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    ensureDirectories();
+    if (process.argv.includes('--smoke-test')) {
+      try {
+        await startBackend();
+        const stopped = await stopBackend();
+        if (!stopped.success) throw new Error(stopped.error || 'Falha no encerramento do backend.');
+        allowQuit = true;
+        app.exit(0);
+      } catch (error) {
+        log('ERROR', 'Desktop smoke test falhou: ' + (error?.stack || error));
+        await stopBackend();
+        app.exit(1);
+      }
+      return;
+    }
+    createLauncherWindow();
+  });
+
+  app.on('activate', () => {
+    if (!launcherWindow && !appWindow) createLauncherWindow();
+  });
+}
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

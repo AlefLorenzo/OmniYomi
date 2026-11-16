@@ -187,3 +187,27 @@ Para gerar APKs assinados para distribuição de produção:
 
 ## 📄 Licença
 Distribuído sob licença aberta com foco em software livre e preservação digital.
+
+
+---
+
+## 🖥️ OmniYomi Desktop para Windows
+
+O repositório também oferece um inicializador desktop para Windows 10/11 x64. Ele inicia o backend local, valida o endpoint \`/api/health\`, abre a interface em uma janela própria e encerra somente os processos que ele iniciou.
+
+### Compilar localmente
+
+\`\`\`powershell
+npm install
+npm --prefix client install
+npm run desktop:smoke
+npm run desktop:dist
+\`\`\`
+
+Os executáveis NSIS e portátil são gerados em \`release/\`. O build automatizado ocorre no workflow **Windows Desktop Build**.
+
+### Dados preservados
+
+Banco, downloads, extensões e logs ficam em \`%LOCALAPPDATA%\\OmniYomi\\\`, separados do diretório de instalação para sobreviver a atualizações e desinstalações. Em ambiente de desenvolvimento, o launcher pode migrar com backup validado o banco legado da pasta \`data/\`.
+
+Consulte [desktop/README.md](desktop/README.md) para detalhes do ciclo de vida e configuração do runtime opcional Suwayomi.
