@@ -187,19 +187,26 @@ export class AppDatabase {
 
   private ensureDefaultRepos() {
     const repos = [
-      { url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json', name: 'Keiyoushi (Principal)' },
-      { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA (Foco em PT-BR)' },
-      { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō' },
-      { url: 'https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json', name: 'Kavita Extensions' },
-      { url: 'https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json', name: 'Suwayomi Official Repo' },
+      { url: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb', name: 'Keiyoushi — catálogo principal (Mihon 1.6)' },
+      { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA — extensões PT-BR' },
+      { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō — comunidade' },
     ];
 
-    const insertRepo = this.db.prepare('INSERT OR IGNORE INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)');
-    for (const r of repos) {
-      insertRepo.run(r.url, r.name);
+    // Migra apenas o URL padrão antigo da Keiyoushi; mantém repositórios personalizados do usuário.
+    const legacyKeiyoushi = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json';
+    const currentKeiyoushi = repos[0].url;
+    const legacyExists = Boolean(this.db.prepare('SELECT 1 FROM extension_repos WHERE url = ?').get(legacyKeiyoushi));
+    const currentExists = Boolean(this.db.prepare('SELECT 1 FROM extension_repos WHERE url = ?').get(currentKeiyoushi));
+    if (legacyExists && !currentExists) {
+      this.db.prepare('UPDATE extension_repos SET url = ?, name = ? WHERE url = ?')
+        .run(currentKeiyoushi, repos[0].name, legacyKeiyoushi);
     }
 
-    // Default settings
+    const insertRepo = this.db.prepare(
+      'INSERT OR IGNORE INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)'
+    );
+    for (const r of repos) insertRepo.run(r.url, r.name);
+
     this.ensureDefaultSettings();
   }
 

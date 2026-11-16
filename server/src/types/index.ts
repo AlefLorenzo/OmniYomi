@@ -171,6 +171,13 @@ export interface RepoExtension {
   sources: RepoExtensionSource[];
   isInstalled: boolean;
   isExtracted: boolean;
+  extensionLib?: string;
+  versionCode?: number;
+  signingKey?: string;
+  installedVersion?: string;
+  updateAvailable?: boolean;
+  isCompatible?: boolean;
+  compatibilityReason?: string;
   extractedPath?: string | null;
 }
 

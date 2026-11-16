@@ -15,7 +15,11 @@ export class SuwayomiService {
     if (configured && configured.trim()) return path.resolve(configured.trim());
 
     const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    const dataRoot = process.env.OMNIYOMI_DATA_DIR
+      ? path.resolve(process.env.OMNIYOMI_DATA_DIR)
+      : null;
     const candidates = [
+      dataRoot ? path.join(dataRoot, 'runtime', 'suwayomi') : null,
       resourcesPath ? path.join(resourcesPath, 'suwayomi') : null,
       path.resolve(process.cwd(), 'runtime', 'suwayomi'),
     ].filter((candidate): candidate is string => Boolean(candidate));
@@ -39,8 +43,16 @@ export class SuwayomiService {
 
   public async isHealthy(): Promise<boolean> {
     try {
-      const res = await this.restGet('/api/v1/settings/about');
-      return Boolean(res && res.name?.includes('Suwayomi'));
+      const result = await this.queryGql(`
+        query {
+          aboutServer {
+            name
+            version
+          }
+        }
+      `);
+      const about = result?.aboutServer;
+      return Boolean(about?.name?.toLowerCase().includes('suwayomi') && about?.version);
     } catch {
       return false;
     }
@@ -80,8 +92,21 @@ export class SuwayomiService {
         return false;
       }
 
+      const dataRoot = process.env.OMNIYOMI_DATA_DIR
+        ? path.resolve(process.env.OMNIYOMI_DATA_DIR)
+        : path.resolve(process.cwd(), 'data');
+      const suwayomiData = path.join(dataRoot, 'suwayomi-data');
+      fs.mkdirSync(suwayomiData, { recursive: true });
+
+      // OmniYomi uses port 4567; keep Suwayomi isolated on 4568 and loopback only.
       const args = [
         '-Djava.awt.headless=true',
+        '-Dsuwayomi.tachidesk.config.server.ip=127.0.0.1',
+        '-Dsuwayomi.tachidesk.config.server.port=4568',
+        '-Dsuwayomi.tachidesk.config.server.rootDir=' + suwayomiData,
+        '-Dsuwayomi.tachidesk.config.server.webUIEnabled=false',
+        '-Dsuwayomi.tachidesk.config.server.initialOpenInBrowserEnabled=false',
+        '-Dsuwayomi.tachidesk.config.server.systemTrayEnabled=false',
         '--add-exports=java.desktop/sun.awt=ALL-UNNAMED',
         '--enable-native-access=ALL-UNNAMED',
         '-jar',
@@ -117,6 +142,70 @@ export class SuwayomiService {
 
     this.isStarting = false;
     return false;
+  }
+
+  public async syncExtensionStores(indexUrls: string[]): Promise<void> {
+    if (!(await this.isHealthy())) {
+      throw new Error('O runtime Suwayomi não está disponível para sincronizar os repositórios.');
+    }
+
+    const existingData = await this.queryGql(`
+      query {
+        extensionStores {
+          nodes {
+            indexUrl
+          }
+        }
+      }
+    `);
+    const known = new Set<string>(
+      (existingData?.extensionStores?.nodes || []).map((store: any) => String(store.indexUrl))
+    );
+
+    for (const suppliedUrl of indexUrls) {
+      const cleanUrl = String(suppliedUrl || '').trim();
+      if (!cleanUrl) continue;
+      const indexUrl = cleanUrl.endsWith('/index.json')
+        ? cleanUrl.replace(/index\.json$/, 'index.pb')
+        : cleanUrl;
+      if (known.has(indexUrl)) continue;
+
+      try {
+        await this.queryGql(`
+          mutation {
+            addExtensionStore(input: {
+              indexUrl: ${JSON.stringify(indexUrl)}
+            }) {
+              extensionStore {
+                indexUrl
+                name
+              }
+            }
+          }
+        `);
+        known.add(indexUrl);
+        console.log('[SuwayomiService] Repositório de extensões adicionado:', indexUrl);
+      } catch (error: any) {
+        console.warn('[SuwayomiService] Não foi possível adicionar o repositório', indexUrl, error?.message || error);
+      }
+    }
+
+    try {
+      await this.queryGql(`
+        mutation {
+          fetchExtensions(input: {}) {
+            extensions {
+              nodes {
+                pkgName
+                isInstalled
+              }
+            }
+          }
+        }
+      `);
+    } catch (error: any) {
+      console.warn('[SuwayomiService] Falha ao atualizar o catálogo de extensões:', error?.message || error);
+    }
   }
 
   public async stop(): Promise<void> {
