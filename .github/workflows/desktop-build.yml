@@ -43,6 +43,20 @@ jobs:
         shell: pwsh
         run: ./scripts/setup.ps1 -SkipRuntime -SkipBuild
 
+      - name: Compile server before runtime integration test
+        run: npm run build:server
+
+      - name: Validate complete Windows installer PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/install-windows.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell installer script syntax validation failed."
+          }
+
       - name: Install and integration-test the Suwayomi extension runtime
         run: node scripts/runtime-smoke.mjs
 

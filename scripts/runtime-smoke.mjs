@@ -8,24 +8,22 @@ const dataDir = path.join(os.tmpdir(), 'omniyomi-runtime-ci', 'data');
 process.env.OMNIYOMI_DATA_DIR = dataDir;
 
 async function main() {
-  console.log('[Runtime smoke] Instalando/verificando bundle oficial Suwayomi para Windows x64...');
+  console.log('[Runtime smoke] Verificando runtime Suwayomi Windows x64...');
   const runtime = await ensureSuwayomiRuntime({ dataDir, logger: console.log });
   if (!runtime.installed || !runtime.home) throw new Error('Runtime Suwayomi não foi instalado/validado.');
 
   process.env.SUWAYOMI_HOME = runtime.home;
   const { suwayomiService } = await import('../dist/src/services/SuwayomiService.js');
-  console.log('[Runtime smoke] Iniciando Suwayomi e verificando GraphQL...');
+  console.log('[Runtime smoke] Iniciando serviço e verificando GraphQL...');
   const started = await suwayomiService.ensureRunning();
   if (!started) throw new Error('Suwayomi não iniciou dentro do limite de tempo.');
-  const healthy = await suwayomiService.isHealthy();
-  if (!healthy) throw new Error('Suwayomi iniciou, mas o endpoint GraphQL não passou na verificação de saúde.');
 
   const about = await suwayomiService.queryGql('query { aboutServer { name version } }');
   if (!about?.aboutServer?.version || !String(about.aboutServer.name).toLowerCase().includes('suwayomi')) {
     throw new Error('Resposta aboutServer inválida: ' + JSON.stringify(about));
   }
-  console.log('[Runtime smoke] PASSOU: ' + about.aboutServer.name + ' ' + about.aboutServer.version);
 
+  console.log('[Runtime smoke] PASSOU: ' + about.aboutServer.name + ' ' + about.aboutServer.version);
   await suwayomiService.stop();
   console.log('[Runtime smoke] Runtime encerrado.');
 }

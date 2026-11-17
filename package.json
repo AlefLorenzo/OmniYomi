@@ -22,7 +22,8 @@
     "desktop:dist": "npm run build && electron-builder --win nsis portable --x64 --publish never",
     "setup": "node scripts/setup.mjs",
     "extensions:sync": "node scripts/sync-extensions.mjs",
-    "extensions:install-all": "node scripts/install-extensions.mjs"
+    "extensions:install-all": "node scripts/install-extensions.mjs",
+    "install:windows": "powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
