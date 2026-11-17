@@ -1626,8 +1626,11 @@ export const api = {
         throw new Error('sourceId e mangaId são necessários para baixar capítulos no aparelho.');
       }
       try {
+        const effectiveSourceId = resolveSourceId(chapterId, sourceId);
         const result = await TachiyomiNative.downloadChapterFromSource({
-          sourceId, mangaId, chapterId,
+          sourceId: normalizeNativeSourceId(effectiveSourceId),
+          mangaId: normalizeNativeMangaUrl(mangaId, effectiveSourceId),
+          chapterId: normalizeNativeChapterUrl(chapterId, mangaId, effectiveSourceId),
         });
         if (!result?.success) throw new Error('O download não foi concluído.');
         return result;
@@ -1822,7 +1825,11 @@ export const api = {
           newChapters = fetched || [];
         } else if (isNative) {
           const sourceMangaUrl = manga.sourceMangaId || manga.url || manga.id;
-          const res = await TachiyomiNative.getChapterList({ sourceId: srcId, mangaUrl: sourceMangaUrl });
+          const effectiveSourceId = resolveSourceId(manga.id || '', srcId);
+          const res = await TachiyomiNative.getChapterList({
+            sourceId: normalizeNativeSourceId(effectiveSourceId),
+            mangaUrl: normalizeNativeMangaUrl(sourceMangaUrl, effectiveSourceId),
+          });
           newChapters = res.chapters || [];
         } else {
           // Sem servidor e sem nativo: pula
