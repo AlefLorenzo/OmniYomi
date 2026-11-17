@@ -146,7 +146,8 @@ export function SourcesPage() {
       show(`Extensão "${ext.name}" instalada com sucesso!`, 'success');
       // Atualiza status local
       setStoreExtensions(prev => prev.map(e => e.pkg === ext.pkg ? { ...e, isExtracted: true, isInstalled: true } : e));
-      loadInstalledSources();
+      await loadInstalledSources();
+      await loadStore(storeSearch, storeLang, storeRepo);
     } catch (e: any) {
       show(e.message, 'error');
     } finally {
@@ -159,8 +160,9 @@ export function SourcesPage() {
     try {
       await api.uninstallExtracted(pkg);
       show('Extensão desinstalada', 'info');
-      setStoreExtensions(prev => prev.map(e => e.pkg === pkg ? { ...e, isExtracted: false, isInstalled: false } : e));
-      loadInstalledSources();
+      setStoreExtensions(prev => prev.map(e => e.pkg === pkg ? { ...e, isExtracted: false, isInstalled: false, updateAvailable: false } : e));
+      await loadInstalledSources();
+      await loadStore(storeSearch, storeLang, storeRepo);
     } catch (e: any) {
       show(e.message, 'error');
     }
