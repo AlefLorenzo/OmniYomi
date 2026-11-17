@@ -18,6 +18,20 @@ export function HomePage() {
     loadAll();
   }, []);
 
+  function continueReading(item: any) {
+    const chapterId = String(item.chapterId || '');
+    if (!chapterId) {
+      if (item.mangaId) navigate(`/manga/${encodeURIComponent(item.mangaId)}${item.sourceId ? `?sourceId=${encodeURIComponent(item.sourceId)}` : ''}`);
+      return;
+    }
+    const inferredSourceId = chapterId.startsWith('apk:') ? chapterId.split(':').slice(0, 3).join(':') : 'mangadex';
+    const sourceId = item.sourceId || inferredSourceId;
+    const mangaId = item.mangaId || (sourceId.startsWith('apk:') ? chapterId.slice(0, chapterId.lastIndexOf(':')) : '');
+    const params = new URLSearchParams({ sourceId });
+    if (mangaId) params.set('mangaId', mangaId);
+    navigate(`/read/${encodeURIComponent(chapterId)}?${params.toString()}`);
+  }
+
   async function loadAll() {
     // Carrega dados locais imediatamente (0ms)
     try {
@@ -109,9 +123,9 @@ export function HomePage() {
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
             {recentHistory.map(item => (
               <div
-                key={item.id}
+                key={item.chapterId || item.id || item.readAt}
                 className="flex-shrink-0 w-32 cursor-pointer group"
-                onClick={() => navigate(`/manga/${encodeURIComponent(item.mangaId)}${item.sourceId ? `?sourceId=${encodeURIComponent(item.sourceId)}` : ''}`)}
+                onClick={() => continueReading(item)}
               >
                 <div className="relative aspect-[2/3] w-full rounded-lg overflow-hidden bg-[#1a1e29]">
                   <img
