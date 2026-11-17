@@ -223,5 +223,3 @@ irm https://raw.githubusercontent.com/AlefLorenzo/OmniYomi/feature/windows-deskt
 \`\`\`
 
 O instalador baixa a branch do Desktop, preserva a pasta de dados em \`%LOCALAPPDATA%\\OmniYomi\\data\`, verifica/instala Node.js, dependências e runtime Suwayomi, compila o instalador NSIS, instala o aplicativo e tenta abri-lo. Dependências e runtime válidos são reaproveitados.
-
-Para não abrir o aplicativo automaticamente, use o parâmetro \`-NoLaunch\` no script baixado. Para manter cópias de segurança dos arquivos de compilação, use \`-KeepBuildFiles\`.
