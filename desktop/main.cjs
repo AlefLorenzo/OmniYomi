@@ -20,6 +20,7 @@ let allowQuit = false;
 let startPromise = null;
 let currentStatus = { state: 'stopped', message: 'Servidor desligado', port: null, url: null };
 let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: null, releaseNotes: null, error: null };
+let updateCheckInterval = null;
 const recentLogs = [];
 const MAX_LOG_LINES = 300;
 
@@ -431,15 +432,20 @@ function configureAutoUpdates() {
     log('UPDATE-ERROR', updateStatus.error);
   });
 
-  // Give the local UI and backend time to initialize before checking GitHub.
-  setTimeout(() => {
-    if (quitting) return;
+  // Check shortly after startup, then periodically so an app left open also
+  // notices a newly published, validated stable release without requiring restart.
+  const checkForDesktopUpdate = () => {
+    if (quitting || updateStatus.state === 'downloading' || updateStatus.state === 'downloaded') return;
     autoUpdater.checkForUpdates().catch((error) => {
       updateStatus = { ...updateStatus, state: 'error', error: error?.message || String(error) };
       broadcastUpdate();
       log('UPDATE-ERROR', updateStatus.error);
     });
-  }, 10000);
+  };
+
+  setTimeout(checkForDesktopUpdate, 10000);
+  updateCheckInterval = setInterval(checkForDesktopUpdate, 10 * 60 * 1000);
+  if (typeof updateCheckInterval.unref === 'function') updateCheckInterval.unref();
 }
 
 function createAppWindow() {
@@ -540,6 +546,10 @@ ipcMain.handle('omniyomi:install-update', async () => {
 ipcMain.handle('omniyomi:quit', () => app.quit());
 
 app.on('before-quit', (event) => {
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+    updateCheckInterval = null;
+  }
   if (allowQuit) return;
   event.preventDefault();
   if (quitting) return;
