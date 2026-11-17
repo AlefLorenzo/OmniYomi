@@ -7,7 +7,12 @@ on:
       - 'desktop/**'
       - 'server/**'
       - 'client/**'
-      - 'scripts/**'
+      - 'scripts/runtime-manager.cjs'
+      - 'scripts/setup.mjs'
+      - 'scripts/sync-extensions.mjs'
+      - 'scripts/install-extensions.mjs'
+      - 'scripts/runtime-smoke.mjs'
+      - 'scripts/install-windows.ps1'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/desktop-build.yml'
@@ -17,7 +22,12 @@ on:
       - 'desktop/**'
       - 'server/**'
       - 'client/**'
-      - 'scripts/**'
+      - 'scripts/runtime-manager.cjs'
+      - 'scripts/setup.mjs'
+      - 'scripts/sync-extensions.mjs'
+      - 'scripts/install-extensions.mjs'
+      - 'scripts/runtime-smoke.mjs'
+      - 'scripts/install-windows.ps1'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/desktop-build.yml'
@@ -114,7 +124,7 @@ jobs:
             Select-Object -First 1
           if (-not $installer) { throw 'NSIS installer not found.' }
 
-          $dataDir = Join-Path $env:LOCALAPPDATA 'OmniYomi\data'
+          $dataDir = Join-Path $env:LOCALAPPDATA 'OmniYomi\\data'
           New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
           $sentinel = Join-Path $dataDir 'ci-preserve-data-sentinel.txt'
           Set-Content -LiteralPath $sentinel -Value 'preserve-existing-user-data' -Encoding UTF8
