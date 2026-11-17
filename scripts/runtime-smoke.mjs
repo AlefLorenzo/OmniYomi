@@ -24,8 +24,48 @@ async function main() {
   }
 
   console.log('[Runtime smoke] PASSOU: ' + about.aboutServer.name + ' ' + about.aboutServer.version);
+
+  const keiyoushiIndex = 'https://github.com/keiyoushi/extensions/raw/repo/index.pb';
+  console.log('[Runtime smoke] Adicionando e sincronizando o catálogo oficial Keiyoushi...');
+  await suwayomiService.syncExtensionStores([keiyoushiIndex]);
+
+  const storesData = await suwayomiService.queryGql(`
+    query {
+      extensionStores {
+        nodes {
+          indexUrl
+          name
+        }
+      }
+    }
+  `);
+  const stores = storesData?.extensionStores?.nodes || [];
+  if (!stores.some((store) => store.indexUrl === keiyoushiIndex)) {
+    throw new Error('O runtime não confirmou o registro do repositório Keiyoushi.');
+  }
+
+  const catalogData = await suwayomiService.queryGql(`
+    query {
+      extensions(first: 5) {
+        totalCount
+        nodes {
+          pkgName
+          versionName
+          extensionLib
+        }
+      }
+    }
+  `);
+  const extensionCatalog = catalogData?.extensions?.nodes || [];
+  const totalExtensions = Number(catalogData?.extensions?.totalCount || 0);
+  if (extensionCatalog.length === 0 || totalExtensions === 0) {
+    throw new Error('O runtime não retornou nenhuma extensão após sincronizar o repositório.');
+  }
+  console.log('[Runtime smoke] Catálogo OK: ' + totalExtensions + ' extensões; amostra ' +
+    extensionCatalog.map((entry) => entry.pkgName + ' (' + (entry.extensionLib || 'API?') + ')').join(', '));
+
   await suwayomiService.stop();
-  console.log('[Runtime smoke] Runtime encerrado.');
+  console.log('[Runtime smoke] Runtime e teste do catálogo encerrados.');
 }
 
 main().catch(async (error) => {
