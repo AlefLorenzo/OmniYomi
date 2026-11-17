@@ -37,7 +37,10 @@ async function main() {
   if (health.status !== 'ONLINE') throw new Error('A API não está ONLINE.');
 
   console.log('[OmniYomi] Atualizando os catálogos...');
-  await request('/api/extensions/sync', { method: 'POST', body: '{}' });
+  const syncResult = await request('/api/extensions/sync', { method: 'POST', body: '{}' });
+  if (!syncResult.runtimeReady) {
+    throw new Error('O runtime Suwayomi não está pronto. Execute setup.cmd ou scripts/setup.ps1 e tente novamente.');
+  }
 
   const params = new URLSearchParams();
   if (language !== 'all') params.set('lang', language);

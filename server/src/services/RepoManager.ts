@@ -295,11 +295,14 @@ export class RepoManager {
       else console.warn('[RepoManager] Um repositório não pôde ser sincronizado:', result.reason?.message || result.reason);
     }
 
+    // Android package names are unique at install time. Keep one store candidate per package
+    // and prefer the greatest published versionCode to avoid duplicate React keys and signature conflicts.
     const uniqueMap = new Map<string, RepoExtension>();
     for (const ext of allExtensions) {
-      const identity = `${ext.pkg}|${ext.signingKey || ext.repoName}`;
-      const previous = uniqueMap.get(identity);
-      if (!previous || (ext.versionCode || 0) > (previous.versionCode || 0)) uniqueMap.set(identity, ext);
+      const previous = uniqueMap.get(ext.pkg);
+      if (!previous || (ext.versionCode || 0) > (previous.versionCode || 0)) {
+        uniqueMap.set(ext.pkg, ext);
+      }
     }
 
     let filtered = Array.from(uniqueMap.values());
