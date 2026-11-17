@@ -430,15 +430,22 @@ export class RepoManager {
       );
 
       await suwayomiService.queryGql(`
-        mutation {
+        mutation UpdateExtension($id: String!, $install: Boolean!, $update: Boolean!) {
           updateExtension(input: {
-            id: ${JSON.stringify(pkg)},
-            patch: { install: true }
+            id: $id,
+            patch: {
+              install: $install,
+              update: $update
+            }
           }) {
             clientMutationId
           }
         }
-      `);
+      `, {
+        id: pkg,
+        install: !metadata.updateAvailable,
+        update: Boolean(metadata.updateAvailable),
+      });
 
       const installedData = await suwayomiService.queryGql(`
         query {
