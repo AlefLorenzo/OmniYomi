@@ -75,8 +75,8 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
       );
 
     const latestEntry = androidReleases[0];
-    const latest = latestEntry?.release;
-    if (!latest) return null;
+    if (!latestEntry) return null;
+    const latest = latestEntry.release;
 
     const apkAssets = latest.assets.filter((asset: any) =>
       typeof asset.name === 'string' &&
