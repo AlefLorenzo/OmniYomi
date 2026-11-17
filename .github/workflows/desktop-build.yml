@@ -227,10 +227,26 @@ jobs:
             }
           }
           if (-not $manifestContent) { throw "Published latest.yml could not be downloaded from $manifestUrl." }
-          if ($manifestContent -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
-            throw "Published latest.yml does not declare expected version $version."
+          # Normalize an optional UTF-8 BOM and parse the top-level version line.
+          # electron-builder YAML may quote scalar values; accept either representation.
+          $normalizedManifest = $manifestContent.TrimStart([char]0xFEFF)
+          $versionMatch = [regex]::Match(
+            $normalizedManifest,
+            '(?m)^[ \t]*version[ \t]*:[ \t]*[''"]?([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)[''"]?[ \t]*
+
+          Write-Host "Stable desktop release $tag published and remotely verified."
+          Write-Host "Verified update manifest: $manifestUrl"
+
+          )
+          if (-not $versionMatch.Success) {
+            $preview = ($normalizedManifest -split '\r?\n' | Select-Object -First 8) -join ' | '
+            throw "Published latest.yml has no readable top-level version field. Manifest preview: $preview"
           }
-          if ($manifestContent -notmatch '(?m)^sha512:\s*\S+' -and $manifestContent -notmatch '(?m)^\s+sha512:\s*\S+') {
+          $publishedVersion = $versionMatch.Groups[1].Value
+          if ($publishedVersion -ne $version) {
+            throw "Published latest.yml declares version $publishedVersion, expected $version."
+          }
+          if ($normalizedManifest -notmatch '(?m)^[ \t]*sha512[ \t]*:[ \t]*\S+' -and $normalizedManifest -notmatch '(?m)^[ \t]+sha512[ \t]*:[ \t]*\S+') {
             throw 'Published latest.yml does not contain a SHA-512 checksum.'
           }
 
