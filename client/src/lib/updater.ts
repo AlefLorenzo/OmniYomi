@@ -87,6 +87,7 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
     if (!apk) return null;
 
     const version = latestEntry.version;
+    if (typeof version !== 'string') return null;
 
     return {
       version,
