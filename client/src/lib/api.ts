@@ -118,7 +118,8 @@ function resolveSourceId(id: string, sourceId?: string): string {
   if (sourceId) return sourceId;
   if (id === 'mangadex' || id.startsWith('mangadex:')) return 'mangadex';
   const apk = id.match(/^(apk:[^:]+:\d+)(?::|$)/);
-  return apk?.[1] || '';
+  if (apk) return apk[1];
+  return id ? 'mangadex' : '';
 }
 
 function normalizeNativeSourceId(sourceId: string): string {
