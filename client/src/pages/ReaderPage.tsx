@@ -22,6 +22,12 @@ export function ReaderPage() {
 
   const sourceId = searchParams.get('sourceId') || (location.state as any)?.sourceId || '';
   const mangaIdFromNav = searchParams.get('mangaId') || (location.state as any)?.mangaId || '';
+  const inferredSourceId = id.startsWith('apk:') ? id.split(':').slice(0, 3).join(':') : 'mangadex';
+  const effectiveSourceId = sourceId || inferredSourceId;
+  const inferredMangaId = id.startsWith('apk:') && id.split(':').length >= 4
+    ? id.split(':').slice(0, -1).join(':')
+    : '';
+  const resolvedMangaId = mangaIdFromNav || inferredMangaId;
 
   const [pages, setPages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +52,7 @@ export function ReaderPage() {
   useEffect(() => {
     if (!id) return;
     loadReader();
-  }, [id, sourceId, mangaIdFromNav]);
+  }, [id, effectiveSourceId, resolvedMangaId]);
 
   async function loadReader() {
     setLoading(true);
@@ -61,25 +67,17 @@ export function ReaderPage() {
       if (settings?.pageSpacing !== undefined) setPageSpacing(settings.pageSpacing);
 
       // Determine mangaId
-      let mangaId = mangaIdFromNav;
-      if (!mangaId) {
-        const parts = id.split(':');
-        if (id.startsWith('apk:') && parts.length >= 4) {
-          mangaId = parts.slice(0, parts.length - 1).join(':');
-        } else if (parts.length >= 2) {
-          mangaId = `${parts[0]}:${parts[1]}`;
-        }
-      }
+      const mangaId = resolvedMangaId;
 
       // Load pages (checking offline downloaded storage first!)
-      const pageData = await api.getPages(id, sourceId, mangaId);
+      const pageData = await api.getPages(id, effectiveSourceId, mangaId);
       setPages(pageData.pages || []);
       setTotalPages(pageData.totalPages || pageData.pages?.length || 0);
       setIsOffline(Boolean(pageData.isOffline));
 
       // Try to load chapter info + sibling chapters
       if (mangaId) {
-        const [chList] = await Promise.all([api.getChapters(mangaId, sourceId).catch(() => [])]);
+        const [chList] = await Promise.all([api.getChapters(mangaId, effectiveSourceId).catch(() => [])]);
         setChapters(chList || []);
         const thisChapter = chList?.find((c: any) => c.id === id);
         setChapter(thisChapter || null);
@@ -119,22 +117,22 @@ export function ReaderPage() {
 
     // Auto-save progress
     if (totalPages > 0) {
-      api.updateProgress(id, visiblePage, totalPages, scrollPercent >= autoMarkPercent)
+      api.updateProgress(id, visiblePage, totalPages, scrollPercent >= autoMarkPercent, { mangaId: resolvedMangaId, sourceId: effectiveSourceId })
         .catch(() => {});
 
       if (scrollPercent >= autoMarkPercent && !markedReadRef.current) {
         markedReadRef.current = true;
       }
     }
-  }, [readerMode, id, totalPages, autoMarkPercent]);
+  }, [readerMode, id, totalPages, autoMarkPercent, resolvedMangaId, effectiveSourceId]);
 
   // For paged mode: save progress when page changes
   useEffect(() => {
     if (readerMode !== 'vertical_webtoon' && totalPages > 0 && !loading) {
       const isRead = currentPage >= Math.ceil(totalPages * (autoMarkPercent / 100));
-      api.updateProgress(id, currentPage, totalPages, isRead).catch(() => {});
+      api.updateProgress(id, currentPage, totalPages, isRead, { mangaId: resolvedMangaId, sourceId: effectiveSourceId }).catch(() => {});
     }
-  }, [currentPage, readerMode, totalPages, loading]);
+  }, [currentPage, readerMode, totalPages, loading, resolvedMangaId, effectiveSourceId]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -176,12 +174,12 @@ export function ReaderPage() {
   const { prev: prevChapter, next: nextChapter } = getAdjacentChapters();
 
   const goNextChapter = () => {
-    if (nextChapter) navigate(`/read/${encodeURIComponent(nextChapter.id)}?sourceId=${encodeURIComponent(sourceId)}&mangaId=${encodeURIComponent(mangaIdFromNav)}`);
+    if (nextChapter) navigate(`/read/${encodeURIComponent(nextChapter.id)}?sourceId=${encodeURIComponent(effectiveSourceId)}&mangaId=${encodeURIComponent(resolvedMangaId)}`);
     else show('Você chegou ao último capítulo!', 'info');
   };
 
   const goPrevChapter = () => {
-    if (prevChapter) navigate(`/read/${encodeURIComponent(prevChapter.id)}?sourceId=${encodeURIComponent(sourceId)}&mangaId=${encodeURIComponent(mangaIdFromNav)}`);
+    if (prevChapter) navigate(`/read/${encodeURIComponent(prevChapter.id)}?sourceId=${encodeURIComponent(effectiveSourceId)}&mangaId=${encodeURIComponent(resolvedMangaId)}`);
     else show('Você está no primeiro capítulo!', 'info');
   };
 
