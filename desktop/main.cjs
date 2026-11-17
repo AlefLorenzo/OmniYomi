@@ -502,7 +502,8 @@ ipcMain.handle('omniyomi:get-state', () => ({
   ...currentStatus,
   dataDir,
   logsDir,
-  logs: recentLogs
+  logs: recentLogs,
+  update: updateStatus
 }));
 ipcMain.handle('omniyomi:start', async () => {
   try { return await startBackend(); }
@@ -523,7 +524,16 @@ ipcMain.handle('omniyomi:open-app', async () => {
 ipcMain.handle('omniyomi:open-data', () => shell.openPath(dataDir));
 ipcMain.handle('omniyomi:open-logs', () => shell.openPath(logsDir));
 ipcMain.handle('omniyomi:show-log-file', () => shell.openPath(logFile));
-ipcMain.handle('omniyomi:check-updates', async () => {\n  if (updateStatus.state === 'unsupported') return updateStatus;\n  try { await autoUpdater.checkForUpdates(); } catch (error) { log('UPDATE-ERROR', error?.message || error); }\n  return updateStatus;\n});\nipcMain.handle('omniyomi:install-update', () => {\n  if (updateStatus.state !== 'downloaded') return { success: false, error: 'A atualização ainda não foi baixada.' };\n  setImmediate(() => autoUpdater.quitAndInstall(false, true));\n  return { success: true };\n});\nipcMain.handle('omniyomi:quit', () => app.quit());
+ipcMain.handle('omniyomi:check-updates', async () => {
+  if (updateStatus.state === 'unsupported') return updateStatus;
+  try { await autoUpdater.checkForUpdates(); } catch (error) { log('UPDATE-ERROR', error?.message || error); }
+  return updateStatus;
+});
+ipcMain.handle('omniyomi:install-update', () => {
+  if (updateStatus.state !== 'downloaded') return { success: false, error: 'A atualização ainda não foi baixada.' };
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return { success: true };
+});\nipcMain.handle('omniyomi:quit', () => app.quit());
 
 app.on('before-quit', (event) => {
   if (allowQuit) return;
@@ -564,6 +574,7 @@ if (!gotLock) {
       return;
     }
     createLauncherWindow();
+    configureAutoUpdates();
   });
 
   app.on('activate', () => {
