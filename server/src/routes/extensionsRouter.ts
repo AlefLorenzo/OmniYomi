@@ -131,10 +131,10 @@ extensionsRouter.post('/extract', async (req, res) => {
 });
 
 // --- Uninstall Extracted APK Extension ---
-extensionsRouter.delete('/extracted/:pkg', (req, res) => {
+extensionsRouter.delete('/extracted/:pkg', async (req, res) => {
   const { pkg } = req.params;
   try {
-    repoManager.uninstallExtractedExtension(pkg);
+    await repoManager.uninstallExtractedExtension(pkg);
     res.json({ success: true, pkg });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
