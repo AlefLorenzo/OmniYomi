@@ -107,17 +107,14 @@
       "artifactName": "OmniYomi-Desktop-${version}-portable-${arch}.${ext}"
     },
     "publish": [
-      {
-        "provider": "github",
-        "owner": "AlefLorenzo",
-        "repo": "OmniYomi",
-        "releaseType": "release",
-        "tagNamePrefix": "desktop-v",
-        "releaseName": "OmniYomi Desktop v${version}"
-      }
+      "github"
     ]
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlefLorenzo/OmniYomi.git"
   }
 }
