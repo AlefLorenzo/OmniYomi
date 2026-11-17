@@ -63,7 +63,7 @@ jobs:
       - name: Determinar versão
         id: get_version
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [ "${{ github.event_name }}" = "push" ] && [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
             VERSION="${GITHUB_REF#refs/tags/android-v}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
