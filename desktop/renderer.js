@@ -28,7 +28,7 @@ function applyUpdate(update) {
   const button = $('install-update-button');
   const progress = $('update-progress-wrap');
   const percent = Math.max(0, Math.min(100, Number(update.percent) || 0));
-  $('update-version').textContent = 'v' + (update.currentVersion || '—');
+  $('update-version').textContent = 'v' + (update.version || update.currentVersion || '—');
   button.hidden = update.state !== 'downloaded';
   progress.hidden = update.state !== 'downloading';
   $('update-progress-bar').style.width = percent + '%';
