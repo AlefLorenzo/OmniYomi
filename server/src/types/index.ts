@@ -84,6 +84,7 @@ export interface DownloadItem {
 export interface ReadingHistoryItem {
   id: string;
   mangaId: string;
+  sourceId?: string;
   chapterId: string;
   mangaTitle: string;
   chapterTitle: string;
