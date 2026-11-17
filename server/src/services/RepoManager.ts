@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip';
 import { fileURLToPath } from 'url';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
-import { decodeProtobufRepo } from './ProtobufRepoDecoder.js';
+import { decodeProtobufExtensionList, decodeProtobufRepoIndex } from './ProtobufRepoDecoder.js';
 import { suwayomiService } from './SuwayomiService.js';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
@@ -26,95 +26,119 @@ export class RepoManager {
   public async fetchRepoExtensions(repoUrl: string): Promise<RepoExtension[]> {
     const cleanUrl = repoUrl.trim();
     const cached = this.cache.get(cleanUrl);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      return cached.extensions;
-    }
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) return cached.extensions;
 
     const extractedList = db.getExtractedExtensions();
-    const extractedPkgs = new Set(extractedList.map((e: any) => e.pkg));
-
-    // Try fetching with smart format fallback (.pb, index.json, index.min.json)
-    const candidateUrls = this.resolveCandidateUrls(cleanUrl);
+    const extractedPkgs = new Set(extractedList.map((entry: any) => entry.pkg));
+    const pendingUrls = this.resolveCandidateUrls(cleanUrl);
+    const visited = new Set<string>();
     let lastError: any = null;
 
-    for (const url of candidateUrls) {
+    while (pendingUrls.length > 0) {
+      const url = pendingUrls.shift()!;
+      if (!url || visited.has(url)) continue;
+      visited.add(url);
+
       try {
         let extensions: RepoExtension[] = [];
 
         if (url.endsWith('.pb')) {
-          // Protocol Buffer binary format
-          const res = await axios.get(url, {
+          const response = await axios.get(url, {
             responseType: 'arraybuffer',
-            timeout: 25000,
-            headers: { 'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0' },
+            timeout: 30000,
+            headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
           });
+          const decoded = decodeProtobufRepoIndex(Buffer.from(response.data), url);
+          extensions = decoded.extensions;
 
-          const buffer = Buffer.from(res.data);
-          extensions = decodeProtobufRepo(buffer, url);
+          if (extensions.length === 0 && decoded.extensionListUrl) {
+            const listResponse = await axios.get(decoded.extensionListUrl, {
+              responseType: 'arraybuffer',
+              timeout: 30000,
+              headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
+            });
+            extensions = decodeProtobufExtensionList(
+              Buffer.from(listResponse.data),
+              url,
+              decoded.name,
+              decoded.signingKey,
+            );
+          }
         } else {
-          // JSON format (index.min.json or index.json)
-          const res = await axios.get(url, {
-            timeout: 25000,
+          const response = await axios.get(url, {
+            timeout: 30000,
             headers: {
-              'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0',
+              'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1',
               'Accept': 'application/json',
             },
           });
-
-          const data = res.data;
-          const urlObj = new URL(url);
+          const data = response.data;
           const basePath = url.substring(0, url.lastIndexOf('/'));
 
-          // Check if index.min.json returned an "outdated / update to mihon" stub
-          if (Array.isArray(data) && data.length <= 2 && data.some(d => d.name?.includes('Mihon') || d.name?.includes('Outdated'))) {
-            // Try fetching index.json in the same folder instead
-            const indexJsonUrl = `${basePath}/index.json`;
-            try {
-              const fullRes = await axios.get(indexJsonUrl, { timeout: 25000 });
-              if (fullRes.data?.extensionList?.extensions?.length > 10) {
-                return this.parseModernJson(fullRes.data, indexJsonUrl, extractedPkgs);
-              }
-            } catch {
-              // continue
-            }
+          if (data && !Array.isArray(data) && typeof data === 'object' && typeof data.index_v2 === 'string') {
+            const indexV2 = new URL(data.index_v2, url).toString();
+            if (!visited.has(indexV2)) pendingUrls.unshift(indexV2);
+            continue;
           }
 
-          if (Array.isArray(data)) {
-            extensions = this.parseLegacyJson(data, url, basePath, urlObj.hostname, extractedPkgs);
+          if (data && !Array.isArray(data) && typeof data === 'object' &&
+              !(data.extensionList?.extensions?.length) && typeof data.extensionListUrl === 'string') {
+            const listUrl = new URL(data.extensionListUrl, url).toString();
+            const listResponse = await axios.get(listUrl, {
+              responseType: 'arraybuffer',
+              timeout: 30000,
+              headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
+            });
+            extensions = decodeProtobufExtensionList(Buffer.from(listResponse.data), url, data.name, data.signingKey);
+          } else if (Array.isArray(data)) {
+            const outdatedStub = data.length <= 2 && data.some((item: any) =>
+              /mihon|outdated|update to/i.test(String(item?.name || ''))
+            );
+            if (outdatedStub && url.endsWith('/index.min.json')) {
+              const repoJsonUrl = new URL('repo.json', url).toString();
+              if (!visited.has(repoJsonUrl)) pendingUrls.unshift(repoJsonUrl);
+              continue;
+            }
+            extensions = this.parseLegacyJson(data, url, basePath, new URL(url).hostname, extractedPkgs);
           } else if (data && typeof data === 'object') {
             extensions = this.parseModernJson(data, url, extractedPkgs);
           }
         }
 
         if (extensions.length > 0) {
-          // Cross-reference extracted state
-          for (const ext of extensions) {
-            ext.isExtracted = extractedPkgs.has(ext.pkg);
-            ext.isInstalled = extractedPkgs.has(ext.pkg);
+          for (const extension of extensions) {
+            extension.isExtracted = extractedPkgs.has(extension.pkg);
+            extension.isInstalled = extractedPkgs.has(extension.pkg);
+            extension.repoUrl = cleanUrl;
           }
-
           this.cache.set(cleanUrl, { extensions, timestamp: Date.now() });
           db.updateRepoSynced(cleanUrl);
           return extensions;
         }
-      } catch (err: any) {
-        lastError = err;
+      } catch (error: any) {
+        lastError = error;
       }
     }
 
-    throw new Error(`Falha ao extrair extensões de ${cleanUrl}: ${lastError?.message || 'Nenhuma extensão encontrada'}`);
+    throw new Error('Falha ao extrair extensões de ' + cleanUrl + ': ' +
+      (lastError?.message || 'Nenhuma extensão encontrada nos formatos aceitos'));
   }
 
   private resolveCandidateUrls(url: string): string[] {
     const urls = [url];
     if (url.endsWith('/')) {
-      urls.push(`${url}index.json`, `${url}index.min.json`, `${url}index.pb`);
+      urls.push(url + 'index.pb', url + 'index.json', url + 'index.min.json');
     } else if (url.endsWith('index.min.json')) {
-      urls.push(url.replace('index.min.json', 'index.json'), url.replace('index.min.json', 'index.pb'));
+      urls.push(url.replace('index.min.json', 'repo.json'));
+      urls.push(url.replace('index.min.json', 'index.json'));
+      urls.push(url.replace('index.min.json', 'index.pb'));
     } else if (url.endsWith('index.pb')) {
-      urls.push(url.replace('index.pb', 'index.json'), url.replace('index.pb', 'index.min.json'));
+      urls.push(url.replace('index.pb', 'index.json'));
+      urls.push(url.replace('index.pb', 'index.min.json'));
     } else if (url.endsWith('index.json')) {
-      urls.push(url.replace('index.json', 'index.pb'), url.replace('index.json', 'index.min.json'));
+      urls.push(url.replace('index.json', 'repo.json'));
+      urls.push(url.replace('index.json', 'index.pb'));
+      urls.push(url.replace('index.json', 'index.min.json'));
     }
     return urls;
   }

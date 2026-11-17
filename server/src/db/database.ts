@@ -190,6 +190,7 @@ export class AppDatabase {
       { url: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb', name: 'Keiyoushi — catálogo principal (Mihon 1.6)' },
       { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA — extensões PT-BR' },
       { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō — comunidade' },
+      { url: 'https://github.com/manti-X/extensions/raw/repo/index.pb', name: 'manti-X — extensões complementares' },
     ];
 
     // Migra apenas o URL padrão antigo da Keiyoushi; mantém repositórios personalizados do usuário.
