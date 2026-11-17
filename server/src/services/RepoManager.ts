@@ -534,10 +534,42 @@ export class RepoManager {
     }
   }
 
-  public uninstallExtractedExtension(pkg: string): boolean {
+  public async uninstallExtractedExtension(pkg: string): Promise<boolean> {
     if (!/^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$/.test(pkg)) {
       throw new Error('Identificador de pacote inválido.');
     }
+
+    // Remove the extension from the runtime first. If this fails, keep the local
+    // APK and extracted files so the UI never reports a half-uninstalled source.
+    if (await suwayomiService.isHealthy()) {
+      await suwayomiService.queryGql(`
+        mutation UninstallExtension($id: String!) {
+          updateExtension(input: {
+            id: $id,
+            patch: { uninstall: true }
+          }) {
+            clientMutationId
+          }
+        }
+      `, { id: pkg });
+
+      const state = await suwayomiService.queryGql(`
+        query {
+          extensions {
+            nodes {
+              pkgName
+              isInstalled
+            }
+          }
+        }
+      `);
+      const stillInstalled = (state?.extensions?.nodes || [])
+        .some((entry: any) => entry.pkgName === pkg && entry.isInstalled);
+      if (stillInstalled) {
+        throw new Error('O runtime Suwayomi ainda informa que a extensão está instalada. Os arquivos locais foram preservados.');
+      }
+    }
+
     const targetDir = path.join(EXTRACTED_DIR, pkg);
     if (fs.existsSync(targetDir)) {
       fs.rmSync(targetDir, { recursive: true, force: true });
@@ -548,30 +580,10 @@ export class RepoManager {
       fs.unlinkSync(apkPath);
     }
 
-    // Desinstalar no Suwayomi também
-    suwayomiService.isHealthy().then(healthy => {
-      if (healthy) {
-        suwayomiService.queryGql(`
-          mutation {
-            updateExtension(input: {
-              id: "${pkg}",
-              patch: { uninstall: true }
-            }) {
-              clientMutationId
-            }
-          }
-        `).catch(() => {});
-      }
-    });
-
-    // Remove from DB and ExtensionManager
     db.deleteExtractedExtension(pkg);
     extensionManager.removeApkExtensionSources(pkg);
-
-    // Invalidate caches
     this.cache.clear();
     return true;
-  }
-}
+  }}
 
 export const repoManager = new RepoManager();
