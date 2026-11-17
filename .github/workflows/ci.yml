@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Build, tests & TypeScript validation
+    name: Build & TypeScript validation
     runs-on: ubuntu-latest
 
     steps:

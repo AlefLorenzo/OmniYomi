@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Download, X } from 'lucide-react';
 import { checkForUpdate, type ReleaseInfo } from '../lib/updater';
 
@@ -7,6 +8,10 @@ export function UpdateChecker() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    // The APK updater belongs exclusively to the native Android app.
+    // Desktop updates are handled by electron-updater in the Electron launcher.
+    if (Capacitor.getPlatform() !== 'android') return;
+
     const timer = setTimeout(async () => {
       const info = await checkForUpdate();
       if (info && info.hasUpdate) setRelease(info);
