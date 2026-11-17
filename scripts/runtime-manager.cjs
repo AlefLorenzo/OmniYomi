@@ -31,6 +31,7 @@ async function latestRelease() {
       'Accept': 'application/vnd.github+json',
       'User-Agent': USER_AGENT,
       'X-GitHub-Api-Version': '2022-11-28',
+      ...(process.env.GITHUB_TOKEN ? { 'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN } : {}),
     },
     signal: AbortSignal.timeout(30000),
   });
