@@ -23,14 +23,14 @@ function versionParts(value: string): number[] {
 
 function releaseVersion(tagName: unknown): string | null {
   if (typeof tagName !== 'string') return null;
-  const match = tagName.match(/^(?:android-)?v?(\d+\\.\d+\\.\d+)$/i);
+  const match = tagName.match(/^(?:android-)?v?(\d+\.\d+\.\d+)$/i);
   return match?.[1] || null;
 }
 
 function hasApkAsset(release: any): boolean {
   return Array.isArray(release?.assets) && release.assets.some((asset: any) =>
     typeof asset?.name === 'string' &&
-    /-release\\.apk$/i.test(asset.name) &&
+    /-release\.apk$/i.test(asset.name) &&
     typeof asset.browser_download_url === 'string'
   );
 }
@@ -80,7 +80,7 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
 
     const apkAssets = latest.assets.filter((asset: any) =>
       typeof asset.name === 'string' &&
-      /-release\\.apk$/i.test(asset.name) &&
+      /-release\.apk$/i.test(asset.name) &&
       typeof asset.browser_download_url === 'string'
     );
     const apk = apkAssets[0];
