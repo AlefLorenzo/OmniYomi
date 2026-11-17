@@ -262,14 +262,16 @@ export class RepoManager {
       if (fs.existsSync(manifestPath)) manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     } catch { manifest = null; }
 
-    const dexValid = ['classes.dex', 'classes2.dex', 'classes3.dex'].some((name) =>
-      fs.existsSync(path.join(extractedPath, name)) && fs.statSync(path.join(extractedPath, name)).size > 0
+    const dexValid = fs.existsSync(extractedPath) && fs.readdirSync(extractedPath).some((name) =>
+      /^classes(?:\d+)?\.dex$/i.test(name) &&
+      fs.statSync(path.join(extractedPath, name)).isFile() &&
+      fs.statSync(path.join(extractedPath, name)).size > 0
     );
     let apkValid = false;
     try {
       if (fs.existsSync(apkPath) && fs.statSync(apkPath).size > 1024) {
         const zip = new AdmZip(apkPath);
-        apkValid = Boolean(zip.getEntry('classes.dex') || zip.getEntry('classes2.dex') || zip.getEntry('classes3.dex'));
+        apkValid = zip.getEntries().some((entry) => /^classes(?:\d+)?\.dex$/i.test(entry.entryName));
       }
     } catch { apkValid = false; }
 
@@ -389,9 +391,10 @@ export class RepoManager {
       const apkBuffer = Buffer.from(res.data);
       if (apkBuffer.length < 1024) throw new Error('O download retornou um arquivo muito pequeno para ser um APK válido.');
       const zip = new AdmZip(apkBuffer);
-      const dexEntries = ['classes.dex', 'classes2.dex', 'classes3.dex']
-        .map((name) => zip.getEntry(name))
-        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      // Multi-dex APKs may contain classes4.dex or later; retain every root DEX file.
+      const dexEntries = zip.getEntries().filter((entry) =>
+        /^classes(?:\d+)?\.dex$/i.test(entry.entryName)
+      );
       const manifestEntry = zip.getEntry('AndroidManifest.xml');
       if (dexEntries.length === 0 || !manifestEntry) {
         throw new Error('O arquivo baixado não contém um AndroidManifest.xml e classes.dex válidos.');
