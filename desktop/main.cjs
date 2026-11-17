@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 const { ensureSuwayomiRuntime } = require('../scripts/runtime-manager.cjs');
 const path = require('path');
 const fs = require('fs');
@@ -18,6 +19,7 @@ let quitting = false;
 let allowQuit = false;
 let startPromise = null;
 let currentStatus = { state: 'stopped', message: 'Servidor desligado', port: null, url: null };
+let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: null, releaseNotes: null, error: null };
 const recentLogs = [];
 const MAX_LOG_LINES = 300;
 
@@ -382,6 +384,64 @@ async function stopBackend() {
   return { success: true };
 }
 
+
+function broadcastUpdate() {
+  broadcast('update', updateStatus);
+}
+
+function configureAutoUpdates() {
+  // Portable builds are self-contained executables and are not safely replaceable
+  // by electron-updater. The NSIS-installed build is the supported update channel.
+  if (!app.isPackaged || process.platform !== 'win32' || process.env.PORTABLE_EXECUTABLE_DIR) {
+    updateStatus = { ...updateStatus, state: 'unsupported' };
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.on('checking-for-update', () => {
+    updateStatus = { ...updateStatus, state: 'checking', error: null };
+    broadcastUpdate();
+    log('UPDATE', 'Verificando atualizações no canal oficial do OmniYomi.');
+  });
+  autoUpdater.on('update-available', (info) => {
+    updateStatus = { ...updateStatus, state: 'downloading', version: info.version, releaseNotes: info.releaseNotes || null, error: null };
+    broadcastUpdate();
+    log('UPDATE', 'Atualização ' + info.version + ' encontrada. Download iniciado.');
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    updateStatus = { ...updateStatus, state: 'current', version: info.version || app.getVersion(), error: null };
+    broadcastUpdate();
+    log('UPDATE', 'OmniYomi já está na versão mais recente.');
+  });
+  autoUpdater.on('download-progress', (progress) => {
+    updateStatus = { ...updateStatus, state: 'downloading', percent: Math.max(0, Math.min(100, Math.round(progress.percent || 0))) };
+    broadcastUpdate();
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    updateStatus = { ...updateStatus, state: 'downloaded', version: info.version, percent: 100, error: null };
+    broadcastUpdate();
+    log('UPDATE', 'Atualização baixada e validada. Pronta para instalar ao reiniciar.');
+  });
+  autoUpdater.on('error', (error) => {
+    updateStatus = { ...updateStatus, state: 'error', error: error?.message || String(error) };
+    broadcastUpdate();
+    log('UPDATE-ERROR', updateStatus.error);
+  });
+
+  // Give the local UI and backend time to initialize before checking GitHub.
+  setTimeout(() => {
+    if (quitting) return;
+    autoUpdater.checkForUpdates().catch((error) => {
+      updateStatus = { ...updateStatus, state: 'error', error: error?.message || String(error) };
+      broadcastUpdate();
+      log('UPDATE-ERROR', updateStatus.error);
+    });
+  }, 10000);
+}
+
 function createAppWindow() {
   if (appWindow && !appWindow.isDestroyed()) {
     appWindow.show();
@@ -463,7 +523,7 @@ ipcMain.handle('omniyomi:open-app', async () => {
 ipcMain.handle('omniyomi:open-data', () => shell.openPath(dataDir));
 ipcMain.handle('omniyomi:open-logs', () => shell.openPath(logsDir));
 ipcMain.handle('omniyomi:show-log-file', () => shell.openPath(logFile));
-ipcMain.handle('omniyomi:quit', () => app.quit());
+ipcMain.handle('omniyomi:check-updates', async () => {\n  if (updateStatus.state === 'unsupported') return updateStatus;\n  try { await autoUpdater.checkForUpdates(); } catch (error) { log('UPDATE-ERROR', error?.message || error); }\n  return updateStatus;\n});\nipcMain.handle('omniyomi:install-update', () => {\n  if (updateStatus.state !== 'downloaded') return { success: false, error: 'A atualização ainda não foi baixada.' };\n  setImmediate(() => autoUpdater.quitAndInstall(false, true));\n  return { success: true };\n});\nipcMain.handle('omniyomi:quit', () => app.quit());
 
 app.on('before-quit', (event) => {
   if (allowQuit) return;
