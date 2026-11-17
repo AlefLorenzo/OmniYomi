@@ -10,6 +10,11 @@ on:
         description: 'Versão do APK (ex: 1.1.6)'
         required: true
         default: '1.1.6'
+      publish_release:
+        description: 'Publicar o APK como release Android (em vez de apenas gerar artefato)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: omniyomi-android-${{ github.ref }}
@@ -152,6 +157,7 @@ jobs:
           retention-days: 30
 
       - name: Publicar Release Android
+        if: startsWith(github.ref, 'refs/tags/android-v') || inputs.publish_release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
