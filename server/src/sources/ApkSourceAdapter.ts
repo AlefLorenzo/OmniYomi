@@ -335,7 +335,7 @@ export class ApkSourceAdapter extends BaseSource {
     // 1. Tentar Suwayomi se sourceMangaId for numérico
     const suwId = parseInt(sourceMangaId, 10);
     if (!isNaN(suwId) && (await suwayomiService.isHealthy())) {
-      try {
+      const fetchAndRead = async (): Promise<any[]> => {
         await suwayomiService.queryGql(`
           mutation {
             fetchMangaAndChapters(input: {
@@ -365,8 +365,27 @@ export class ApkSourceAdapter extends BaseSource {
             }
           }
         `);
+        return q?.manga?.chapters?.nodes || [];
+      };
 
-        const nodes = q?.manga?.chapters?.nodes || [];
+      try {
+        let nodes: any[] = [];
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            nodes = await fetchAndRead();
+            if (nodes.length > 0) break;
+          } catch (error: any) {
+            const message = String(error?.message || error);
+            if (attempt > 0 || !/no chapters found|timeout|timed out/i.test(message)) {
+              throw error;
+            }
+          }
+          if (attempt === 0) {
+            console.warn(`[ApkSourceAdapter] Nenhum capítulo retornado para ${sourceMangaId}; repetindo a consulta uma vez.`);
+            await new Promise(resolve => setTimeout(resolve, 900));
+          }
+        }
+
         if (nodes.length > 0) {
           return nodes.map((c: any, idx: number) => {
             const chapterOrder = typeof c.sourceOrder === 'number' ? c.sourceOrder : (idx + 1);
@@ -385,6 +404,7 @@ export class ApkSourceAdapter extends BaseSource {
         }
       } catch (e: any) {
         console.warn(`[ApkSourceAdapter] getChapterList Suwayomi falhou:`, e.message);
+      }
       }
     }
 
