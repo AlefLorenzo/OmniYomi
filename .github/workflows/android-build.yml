@@ -120,6 +120,15 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Exigir assinatura estável para publicar uma atualização
+        if: startsWith(github.ref, 'refs/tags/android-v') || inputs.publish_release
+        shell: bash
+        run: |
+          if [[ "${{ steps.keystore_check.outputs.configured }}" != "true" ]]; then
+            echo "::error::Publicação Android bloqueada: configure KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS e KEY_PASSWORD para gerar APK assinada com chave estável."
+            exit 1
+          fi
+
       - name: Compilar APK Release (somente se keystore configurada)
         if: steps.keystore_check.outputs.configured == 'true'
         run: |
@@ -168,10 +177,16 @@ jobs:
             TAG="$GITHUB_REF_NAME"
           fi
 
-          NOTES="OmniYomi Android v${VERSION}. APK Android separado das versões do OmniYomi Desktop."
+          SIGNED_APK="OmniYomi-v${VERSION}-release.apk"
+          if [[ ! -f "$SIGNED_APK" ]]; then
+            echo "::error::APK release assinada não foi gerada; recusando publicar APK debug como atualização."
+            exit 1
+          fi
+
+          NOTES="OmniYomi Android v${VERSION}. APK assinada para atualização sobre instalações existentes."
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" OmniYomi-*.apk --clobber
+            gh release upload "$TAG" "$SIGNED_APK" --clobber
             gh release edit "$TAG" --title "OmniYomi Android v${VERSION}" --notes "$NOTES" --prerelease
           else
-            gh release create "$TAG" OmniYomi-*.apk --title "OmniYomi Android v${VERSION}" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
+            gh release create "$TAG" "$SIGNED_APK" --title "OmniYomi Android v${VERSION}" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
           fi
