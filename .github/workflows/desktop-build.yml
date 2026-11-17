@@ -112,6 +112,14 @@ jobs:
             Select-Object -First 1
           if (-not $installedExe) { throw 'NSIS completed, but the OmniYomi application executable was not installed.' }
 
+          $updateConfig = Join-Path (Split-Path -Parent $installedExe.FullName) 'resources\\app-update.yml'
+          if (-not (Test-Path -LiteralPath $updateConfig)) { throw 'Packaged app-update.yml is missing; automatic updates are not configured in the installer.' }
+          $updateConfigText = Get-Content -LiteralPath $updateConfig -Raw
+          if ($updateConfigText -notmatch 'provider: github' -or $updateConfigText -notmatch 'owner: AlefLorenzo' -or $updateConfigText -notmatch 'repo: OmniYomi') {
+            throw 'Packaged app-update.yml does not point to the official OmniYomi GitHub Releases repository.'
+          }
+          Write-Host 'GitHub Releases update metadata validated in the packaged NSIS installation.'
+
           Write-Host "Running packaged desktop lifecycle smoke test: $($installedExe.FullName)"
           $env:OMNIYOMI_SKIP_RUNTIME_SETUP = '1'
           $env:OMNIYOMI_DISABLE_SUWAYOMI = '1'
