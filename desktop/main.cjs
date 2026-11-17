@@ -246,9 +246,22 @@ async function startBackendInternal() {
     SUWAYOMI_HOME: process.env.SUWAYOMI_HOME || process.env.OMNIYOMI_SUWAYOMI_HOME || path.join(dataDir, 'runtime', 'suwayomi')
   };
 
+  // app.getAppPath() aponta para app.asar na versão empacotada. O ASAR é
+  // um arquivo virtual, não um diretório físico aceito como cwd por CreateProcess.
+  // Use a pasta resources real para que o processo filho possa iniciar também
+  // quando o app é executado pelo instalador NSIS ou pelo pacote portátil.
+  const backendCwd = app.isPackaged ? process.resourcesPath : getAppRoot();
+  if (!fs.existsSync(backendCwd) || !fs.statSync(backendCwd).isDirectory()) {
+    throw new Error('Diretório físico do backend não encontrado: ' + backendCwd);
+  }
+  if (!fs.existsSync(process.execPath)) {
+    throw new Error('O executável do OmniYomi não está mais disponível em disco: ' + process.execPath);
+  }
+
   log('INFO', 'Iniciando backend gerenciado em ' + serverUrl);
+  log('INFO', 'Diretório físico de trabalho do backend: ' + backendCwd);
   backend = spawn(process.execPath, [entry], {
-    cwd: getAppRoot(),
+    cwd: backendCwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
