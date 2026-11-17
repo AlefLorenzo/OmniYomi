@@ -27,6 +27,14 @@ npm run desktop:dist
 
 Os artefatos são gerados em \`release/\`: instalador NSIS e executável portátil x64.
 
+## Atualizações automáticas do Windows
+
+A versão instalada pelo instalador **NSIS** verifica automaticamente as publicações oficiais do GitHub Releases, baixa a atualização em segundo plano e mostra o progresso no launcher. A instalação só começa quando o usuário seleciona **Instalar e reiniciar**; antes disso, o desktop encerra o backend e confirma o fechamento do SQLite. A atualização substitui os arquivos do aplicativo, sem remover `%LOCALAPPDATA%\\OmniYomi\\data`.
+
+O workflow `Windows Desktop Build` publica uma versão somente em pushes para `master`, depois de compilar, executar o smoke test, instalar silenciosamente o NSIS e validar o executável empacotado. Cada execução recebe uma versão crescente `1.1.<run_number>` para impedir colisões de releases. Pull requests e pushes na branch de trabalho apenas testam e geram artefatos; não publicam versões para usuários.
+
+**Importante:** a atualização automática é suportada no instalador NSIS. A edição portátil não substitui o próprio executável e deve ser atualizada manualmente. Builds de desenvolvimento também não recebem atualizações.
+
 ## Dados persistentes
 
 O aplicativo utiliza \`%LOCALAPPDATA%\\OmniYomi\\\`:
