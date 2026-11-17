@@ -131,6 +131,35 @@ async function shutdownServer(): Promise<void> {
   }
 }
 
+function finishShutdown(): void {
+  void shutdownServer().then(() => process.exit(0)).catch((error) => {
+    console.error('[OmniYomi] Falha no encerramento:', error);
+    process.exit(1);
+  });
+}
+
+// Electron/Windows uses a private parent-child stdin channel because OS signals
+// do not reliably execute Node.js signal handlers on Windows.
+if (process.env.OMNIYOMI_DESKTOP === '1' && process.stdin && !process.stdin.destroyed) {
+  let controlBuffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk: string) => {
+    controlBuffer += chunk;
+    const lines = controlBuffer.split(/\r?\n/);
+    controlBuffer = lines.pop() || '';
+    for (const line of lines) {
+      if (line.trim() === 'OMNIYOMI_SHUTDOWN') {
+        console.log('[OmniYomi] Comando privado de encerramento recebido do launcher.');
+        finishShutdown();
+        return;
+      }
+    }
+  });
+  process.stdin.on('error', (error) => {
+    console.warn('[OmniYomi] Canal privado do launcher foi encerrado:', error.message);
+  });
+}
+
 process.once('SIGTERM', () => {
   void shutdownServer().then(() => process.exit(0)).catch((error) => {
     console.error('[OmniYomi] Falha no encerramento:', error);

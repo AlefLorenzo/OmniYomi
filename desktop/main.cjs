@@ -243,7 +243,7 @@ async function startBackendInternal() {
   backend = spawn(process.execPath, [entry], {
     cwd: getAppRoot(),
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     detached: false
   });
@@ -309,11 +309,28 @@ async function stopBackend() {
 
   const child = backend;
   setStatus('stopping', 'Encerrando downloads, serviços e banco de dados com segurança...');
-  try { child.kill('SIGTERM'); } catch (error) { log('ERROR', 'Falha ao solicitar encerramento: ' + error.message); }
+
+  // Send a private command through the child stdin pipe. This works on Windows
+  // where SIGTERM may terminate Node without running its graceful handler.
+  let gracefulCommandSent = false;
+  try {
+    if (!child.stdin || child.stdin.destroyed || !child.stdin.writable) {
+      throw new Error('Canal de controle do backend indisponível.');
+    }
+    child.stdin.write('OMNIYOMI_SHUTDOWN\n');
+    gracefulCommandSent = true;
+    log('INFO', 'Comando de encerramento gracioso enviado ao backend.');
+  } catch (error) {
+    log('WARN', 'Não foi possível usar o canal privado de encerramento: ' + (error?.message || error));
+  }
+
+  if (!gracefulCommandSent) {
+    try { child.kill('SIGTERM'); } catch (error) { log('ERROR', 'Falha ao solicitar encerramento por sinal: ' + error.message); }
+  }
 
   let exited = await waitForExit(child, 35000);
   if (!exited && child.exitCode === null) {
-    log('WARN', 'O encerramento gracioso excedeu 35 segundos. Solicitando término do processo gerenciado.');
+    log('WARN', 'O encerramento gracioso excedeu 35 segundos. Solicitando término forçado do processo gerenciado.');
     try { child.kill(); } catch { /* process may already have exited */ }
     exited = await waitForExit(child, 5000);
   }
