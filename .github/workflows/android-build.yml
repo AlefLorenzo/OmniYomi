@@ -2,21 +2,8 @@ name: Android Build & Release
 
 on:
   push:
-    branches: [ master ]
-    paths:
-      - 'client/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/android-build.yml'
     tags:
       - 'android-v*'
-  pull_request:
-    branches: [ master ]
-    paths:
-      - 'client/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/android-build.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -24,17 +11,18 @@ on:
         required: true
         default: '1.1.6'
 
-permissions:
-  contents: write
-
 concurrency:
   group: omniyomi-android-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repositório
@@ -53,33 +41,34 @@ jobs:
           distribution: 'temurin'
 
       - name: Aceitar licenças do Android SDK
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Configurar local.properties para Android SDK
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > client/android/local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > client/android/local.properties
 
       - name: Determinar versão
         id: get_version
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
             VERSION="${GITHUB_REF#refs/tags/android-v}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION=$(node -p "require('./client/package.json').version")
+            VERSION="${{ inputs.version }}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Versão inválida: $VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Instalar dependências raiz
         run: npm install
 
       - name: Instalar dependências client
-        run: cd client && npm install
+        run: npm --prefix client install
 
       - name: Build do cliente React SPA
-        run: cd client && npm run build
+        run: npm --prefix client run build
         env:
           npm_package_version: ${{ steps.get_version.outputs.VERSION }}
 
@@ -87,36 +76,34 @@ jobs:
         run: |
           chmod +x client/android/gradlew
           mkdir -p client/android/app/src/main/assets/public
-
-      - name: Sincronizar assets do Capacitor Android
-        run: |
-          mkdir -p client/android/app/src/main/assets/public
           cp -r client/dist/* client/android/app/src/main/assets/public/
           cp client/capacitor.config.json client/android/app/src/main/assets/capacitor.config.json
-          (cd client && npx cap sync android) || echo "Assets do Capacitor sincronizados diretamente para o projeto Android"
+
+      - name: Sincronizar assets do Capacitor Android
+        run: cd client && npx cap sync android
 
       - name: Configurar versionamento no build.gradle
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-          VERSION_CODE=$(echo $VERSION | tr -d '.' | sed 's/^0*//')
-          if [ -z "$VERSION_CODE" ]; then VERSION_CODE=1; fi
+          VERSION_CODE=$(echo "$VERSION" | awk -F. '{ printf "%d%03d%03d", $1, $2, $3 }')
           GRADLE_FILE="client/android/app/build.gradle"
-          if [ -f "$GRADLE_FILE" ]; then
-            sed -i "s/versionCode [0-9]*/versionCode ${VERSION_CODE}/" "$GRADLE_FILE"
-            sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE_FILE"
+          if [[ ! -f "$GRADLE_FILE" ]]; then
+            echo "Arquivo Gradle não encontrado: $GRADLE_FILE"
+            exit 1
           fi
+          sed -i "s/versionCode [0-9]*/versionCode ${VERSION_CODE}/" "$GRADLE_FILE"
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE_FILE"
 
-      # Verifica se a keystore foi configurada como secret e grava o resultado
       - name: Verificar configuração de Keystore
         id: keystore_check
+        shell: bash
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "configured=true" >> $GITHUB_OUTPUT
+            echo "configured=true" >> "$GITHUB_OUTPUT"
             mkdir -p client/android/app/keystore
             echo "$KEYSTORE_B64" | base64 -d > client/android/app/keystore/omniyomi.keystore
-            echo "Keystore configurada com sucesso."
           else
-            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "Nenhuma keystore fornecida — apenas APK debug será gerado."
           fi
         env:
@@ -141,54 +128,38 @@ jobs:
 
       - name: Localizar e renomear APKs
         id: find_apk
+        shell: bash
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-
-          DEBUG_APK=$(find client/android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -1)
-          if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
-            cp "$DEBUG_APK" "OmniYomi-v${VERSION}.apk"
-            echo "DEBUG_OUTPUT=OmniYomi-v${VERSION}.apk" >> $GITHUB_OUTPUT
-            echo "APK Gerado: OmniYomi-v${VERSION}.apk"
+          DEBUG_APK=$(find client/android/app/build/outputs/apk/debug -name "*.apk" -print -quit)
+          if [[ -z "$DEBUG_APK" || ! -f "$DEBUG_APK" ]]; then
+            echo "APK debug não foi gerado."
+            exit 1
           fi
+          cp "$DEBUG_APK" "OmniYomi-v${VERSION}.apk"
 
-          RELEASE_APK=$(find client/android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
-          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
+          RELEASE_APK=$(find client/android/app/build/outputs/apk/release -name "*.apk" -print -quit 2>/dev/null || true)
+          if [[ -n "$RELEASE_APK" && -f "$RELEASE_APK" ]]; then
             cp "$RELEASE_APK" "OmniYomi-v${VERSION}-release.apk"
-            echo "RELEASE_OUTPUT=OmniYomi-v${VERSION}-release.apk" >> $GITHUB_OUTPUT
-            echo "APK Release: OmniYomi-v${VERSION}-release.apk"
           fi
 
-      - name: Upload APK Debug como artefato
+      - name: Upload APKs como artefato
         uses: actions/upload-artifact@v4
         with:
-          name: OmniYomi-v${{ steps.get_version.outputs.VERSION }}
-          path: OmniYomi-v*.apk
+          name: OmniYomi-Android-v${{ steps.get_version.outputs.VERSION }}
+          path: OmniYomi-*.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publicar Release no GitHub
-        if: startsWith(github.ref, 'refs/tags/android-v') || github.event_name == 'workflow_dispatch'
+      - name: Publicar Release Android
         uses: softprops/action-gh-release@v2
         with:
-          name: OmniYomi v${{ steps.get_version.outputs.VERSION }}
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/android-v') && github.ref_name || format('android-v{0}', steps.get_version.outputs.VERSION) }}
+          name: OmniYomi Android v${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/android-v') && github.ref_name || format('android-v{0}', inputs.version) }}
           body: |
-            ## 📱 OmniYomi v${{ steps.get_version.outputs.VERSION }} — Android APK
+            ## OmniYomi Android v${{ steps.get_version.outputs.VERSION }}
 
-            Build Android do OmniYomi. Confira as notas da versão e a matriz de compatibilidade das extensões no repositório antes de instalar.
-
-            ### 📥 Como instalar
-            1. Baixe o arquivo `OmniYomi-v${{ steps.get_version.outputs.VERSION }}.apk` abaixo.
-            2. Abra o arquivo no seu celular Android.
-            3. Se solicitado, permita a instalação de fontes desconhecidas.
-
-            ### ✨ Recursos desta versão
-            - 📦 Instalação de extensões com validação do runtime nativo disponível
-            - 🌐 Consulta direta aos repositórios de extensões GitHub
-            - 📖 Leitura online e offline fluida
-            - 📱 Interface responsiva com navegação inferior mobile (BottomNav)
-            - ❤️ Biblioteca, histórico e favoritos locais
-            - 🔄 Verificador e instalador de atualizações integrado via GitHub
+            APK Android separado das versões do OmniYomi Desktop.
           files: |
             OmniYomi-*.apk
           draft: false
