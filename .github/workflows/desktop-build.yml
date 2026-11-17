@@ -59,6 +59,8 @@ jobs:
 
       - name: Install and integration-test the Suwayomi extension runtime
         run: node scripts/runtime-smoke.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Run desktop backend lifecycle smoke test
         run: npm run desktop:smoke
