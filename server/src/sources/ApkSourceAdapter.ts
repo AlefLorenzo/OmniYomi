@@ -335,7 +335,7 @@ export class ApkSourceAdapter extends BaseSource {
     // 1. Tentar Suwayomi se sourceMangaId for numérico
     const suwId = parseInt(sourceMangaId, 10);
     if (!isNaN(suwId) && (await suwayomiService.isHealthy())) {
-      try {
+      const fetchAndRead = async (): Promise<any[]> => {
         await suwayomiService.queryGql(`
           mutation {
             fetchMangaAndChapters(input: {
@@ -365,8 +365,27 @@ export class ApkSourceAdapter extends BaseSource {
             }
           }
         `);
+        return q?.manga?.chapters?.nodes || [];
+      };
 
-        const nodes = q?.manga?.chapters?.nodes || [];
+      try {
+        let nodes: any[] = [];
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            nodes = await fetchAndRead();
+            if (nodes.length > 0) break;
+          } catch (error: any) {
+            const message = String(error?.message || error);
+            if (attempt > 0 || !/no chapters found|timeout|timed out/i.test(message)) {
+              throw error;
+            }
+          }
+          if (attempt === 0) {
+            console.warn(`[ApkSourceAdapter] Nenhum capítulo retornado para ${sourceMangaId}; repetindo a consulta uma vez.`);
+            await new Promise(resolve => setTimeout(resolve, 900));
+          }
+        }
+
         if (nodes.length > 0) {
           return nodes.map((c: any, idx: number) => {
             const chapterOrder = typeof c.sourceOrder === 'number' ? c.sourceOrder : (idx + 1);
@@ -465,25 +484,39 @@ export class ApkSourceAdapter extends BaseSource {
           }
 
           if (mangaId && chapterIndex) {
-            await suwayomiService.queryGql(`
-              mutation {
-                fetchChapterPages(input: {
-                  chapterId: ${suwayomiChapterId}
-                }) {
-                  clientMutationId
-                }
+            let pageCount = 0;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                await suwayomiService.queryGql(`
+                  mutation {
+                    fetchChapterPages(input: {
+                      chapterId: ${suwayomiChapterId}
+                    }) {
+                      clientMutationId
+                    }
+                  }
+                `);
+              } catch (error: any) {
+                const message = String(error?.message || error);
+                const isDecryptTimeout = /timed out decrypting image links|timeout|timed out/i.test(message);
+                if (attempt > 0 || !isDecryptTimeout) throw error;
+                console.warn(`[ApkSourceAdapter] Timeout ao descriptografar páginas do capítulo ${suwayomiChapterId}; repetindo uma vez.`);
+                await new Promise(resolve => setTimeout(resolve, 1200));
+                continue;
               }
-            `);
 
-            const q = await suwayomiService.queryGql(`
-              query {
-                chapter(id: ${suwayomiChapterId}) {
-                  pageCount
+              const q = await suwayomiService.queryGql(`
+                query {
+                  chapter(id: ${suwayomiChapterId}) {
+                    pageCount
+                  }
                 }
-              }
-            `);
+              `);
+              pageCount = q?.chapter?.pageCount || 0;
+              if (pageCount > 0) break;
+              if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 900));
+            }
 
-            const pageCount = q?.chapter?.pageCount || 0;
             if (pageCount > 0) {
               const pages: PageImage[] = [];
               for (let i = 0; i < pageCount; i++) {

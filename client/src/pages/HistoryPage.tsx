@@ -25,6 +25,17 @@ export function HistoryPage() {
     }
   }
 
+  function resumeHistoryItem(item: any) {
+    const chapterId = String(item.chapterId || '');
+    if (!chapterId) return;
+    const inferredSourceId = chapterId.startsWith('apk:') ? chapterId.split(':').slice(0, 3).join(':') : 'mangadex';
+    const sourceId = item.sourceId || inferredSourceId;
+    const mangaId = item.mangaId || (sourceId.startsWith('apk:') ? chapterId.slice(0, chapterId.lastIndexOf(':')) : '');
+    const params = new URLSearchParams({ sourceId });
+    if (mangaId) params.set('mangaId', mangaId);
+    navigate(`/read/${encodeURIComponent(chapterId)}?${params.toString()}`);
+  }
+
   async function handleClearHistory() {
     if (!confirm('Limpar todo o histórico de leitura?')) return;
     await api.clearHistory();
@@ -54,9 +65,9 @@ export function HistoryPage() {
         <div className="space-y-1 border border-[#1f2535] rounded-xl overflow-hidden">
           {history.map(item => (
             <div
-              key={item.id}
+              key={item.chapterId || item.id || item.readAt}
               className="flex items-center gap-3 p-3 hover:bg-[#1a1e29] cursor-pointer transition-colors"
-              onClick={() => navigate(`/read/${encodeURIComponent(item.chapterId)}`)}
+              onClick={() => resumeHistoryItem(item)}
             >
               <img
                 src={item.coverUrl}

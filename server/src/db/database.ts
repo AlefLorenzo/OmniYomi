@@ -525,7 +525,7 @@ export class AppDatabase {
     const rows = this.db.prepare(`
       SELECT
         h.id, h.manga_id, h.chapter_id, h.page, h.total_pages, h.read_at,
-        m.title as manga_title, m.cover_url,
+        m.source_id, m.title as manga_title, m.cover_url,
         c.title as chapter_title, c.chapter_number
       FROM reading_history h
       JOIN manga m ON h.manga_id = m.id
@@ -537,6 +537,7 @@ export class AppDatabase {
     return rows.map(r => ({
       id: r.id,
       mangaId: r.manga_id,
+      sourceId: r.source_id,
       chapterId: r.chapter_id,
       mangaTitle: r.manga_title,
       chapterTitle: r.chapter_title,
