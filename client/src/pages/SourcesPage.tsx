@@ -27,6 +27,8 @@ export function SourcesPage() {
   const [storeTotal, setStoreTotal] = useState(0);
   const [storeVisibleCount, setStoreVisibleCount] = useState(100);
   const [loadingStore, setLoadingStore] = useState(false);
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const storeRequestRef = useRef(0);
   const [storeSearch, setStoreSearch] = useState('');
   const [storeLang, setStoreLang] = useState('all');
   const [storeRepo, setStoreRepo] = useState('all');
@@ -75,16 +77,24 @@ export function SourcesPage() {
   }
 
   async function loadStore(q?: string, lang?: string, repo?: string) {
+    const requestId = ++storeRequestRef.current;
     setLoadingStore(true);
+    setStoreError(null);
     setStoreVisibleCount(100);
     try {
       const res = await api.getStoreExtensions(q, lang, repo);
+      if (requestId !== storeRequestRef.current) return;
       setStoreExtensions(res.extensions || []);
       setStoreTotal(res.total || 0);
     } catch (e: any) {
-      show(`Erro ao carregar loja: ${e.message}`, 'error');
+      if (requestId !== storeRequestRef.current) return;
+      const message = e?.message || 'Falha desconhecida ao consultar os repositórios.';
+      setStoreExtensions([]);
+      setStoreTotal(0);
+      setStoreError(message);
+      show(`Erro ao carregar loja: ${message}`, 'error');
     } finally {
-      setLoadingStore(false);
+      if (requestId === storeRequestRef.current) setLoadingStore(false);
     }
   }
 
@@ -203,7 +213,7 @@ export function SourcesPage() {
         </div>
         <Button variant="ghost" size="sm" onClick={() => {
           if (activeTab === 'installed') loadInstalledSources();
-          else if (activeTab === 'store') loadStore(storeSearch, storeLang);
+          else if (activeTab === 'store') loadStore(storeSearch, storeLang, storeRepo);
           else loadRepos();
         }}>
           <RefreshCw size={14} /> Atualizar
@@ -363,6 +373,14 @@ export function SourcesPage() {
 
           {loadingStore ? (
             <div className="flex justify-center py-20"><Loader size="lg" label="Carregando repositórios..." /></div>
+          ) : storeError ? (
+            <div className="rounded-xl border border-red-900/50 bg-red-950/20 p-4 text-sm text-red-300">
+              <p className="font-semibold">Não foi possível carregar o catálogo.</p>
+              <p className="mt-1 text-xs text-red-200/80">{storeError}</p>
+              <Button size="sm" variant="secondary" className="mt-3" onClick={() => loadStore(storeSearch, storeLang, storeRepo)}>
+                <RefreshCw size={13} /> Tentar novamente
+              </Button>
+            </div>
           ) : storeExtensions.length === 0 ? (
             <Empty icon="🔍" title="Nenhuma extensão encontrada" description="Tente outro termo de busca ou filtro de idioma" />
           ) : (
