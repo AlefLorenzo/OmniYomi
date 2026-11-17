@@ -111,7 +111,9 @@
         "provider": "github",
         "owner": "AlefLorenzo",
         "repo": "OmniYomi",
-        "releaseType": "release"
+        "releaseType": "release",
+        "tagNamePrefix": "desktop-v",
+        "releaseName": "OmniYomi Desktop v${version}"
       }
     ]
   },

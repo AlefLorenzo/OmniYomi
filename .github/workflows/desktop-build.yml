@@ -5,6 +5,14 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+    paths:
+      - 'desktop/**'
+      - 'server/**'
+      - 'client/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-build.yml'
   workflow_dispatch:
 
 concurrency:
