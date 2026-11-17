@@ -147,7 +147,10 @@ jobs:
           if ($updateConfigText -notmatch 'provider: github' -or $updateConfigText -notmatch 'owner: AlefLorenzo' -or $updateConfigText -notmatch 'repo: OmniYomi') {
             throw 'Packaged app-update.yml does not point to the official OmniYomi GitHub Releases repository.'
           }
-          Write-Host 'GitHub Releases update metadata validated in the packaged NSIS installation.'
+          if (-not (Test-Path -LiteralPath (Join-Path $release 'latest.yml'))) {
+            throw 'The Windows update manifest latest.yml was not generated.'
+          }
+          Write-Host 'GitHub Releases feed and latest.yml update manifest validated.'
 
           Write-Host "Running packaged desktop lifecycle smoke test: $($installedExe.FullName)"
           $env:OMNIYOMI_SKIP_RUNTIME_SETUP = '1'
@@ -179,7 +182,23 @@ jobs:
 
       - name: Publish tested Windows desktop update to GitHub Releases
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win nsis --x64 --publish always
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $release = Resolve-Path 'release'
+          $installer = Get-ChildItem $release -Filter 'OmniYomi-Desktop-*-x64.exe' -File |
+            Where-Object { $_.Name -notmatch 'portable' } |
+            Select-Object -First 1
+          $manifest = Join-Path $release 'latest.yml'
+          if (-not $installer) { throw 'Validated NSIS installer was not found for publication.' }
+          if (-not (Test-Path -LiteralPath $manifest)) { throw 'latest.yml is missing; refusing to publish an unusable auto-update release.' }
+
+          $assets = @($installer.FullName, $manifest)
+          $assets += Get-ChildItem $release -Filter '*.blockmap' -File | ForEach-Object { $_.FullName }
+          gh release create $tag @assets --title "OmniYomi Desktop v$version" --notes "Versão estável do OmniYomi Desktop v$version. Atualização automática pelo launcher NSIS." --target $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed for $tag." }
+          Write-Host "Stable desktop release $tag published with NSIS installer and update manifest."
