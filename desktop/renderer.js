@@ -45,7 +45,9 @@ function applyUpdate(update) {
   const state = states[update.state] || states.idle;
   title.textContent = state[0];
   message.textContent = state[1];
-}\n\nfunction applyState(state) {
+}
+
+function applyState(state) {
   const online = state.state === 'online';
   const busy = state.state === 'starting' || state.state === 'stopping';
   $('status-title').innerHTML = online ? 'OmniYomi está<br><em>pronto para ler.</em>' :
@@ -94,11 +96,13 @@ $('data-button').addEventListener('click', () => api.openData());
 $('logs-button').addEventListener('click', () => api.openLogs());
 $('quit-button').addEventListener('click', () => api.quit());
 api.onStatus(applyState);
-api.onUpdate(applyUpdate);\n$('check-updates-button').addEventListener('click', async () => {
+api.onUpdate(applyUpdate);
+$('check-updates-button').addEventListener('click', async () => {
   $('check-updates-button').textContent = 'Verificando…';
   try { applyUpdate(await api.checkUpdates()); }
   finally { $('check-updates-button').textContent = 'Verificar novamente'; }
-});\n$('install-update-button').addEventListener('click', async () => {
+});
+$('install-update-button').addEventListener('click', async () => {
   $('install-update-button').disabled = true;
   $('install-update-button').textContent = 'Reiniciando…';
   const result = await api.installUpdate();
