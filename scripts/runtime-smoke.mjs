@@ -1,4 +1,5 @@
 import path from 'node:path';
+import assert from 'node:assert/strict';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 
@@ -25,7 +26,31 @@ async function main() {
 
   console.log('[Runtime smoke] PASSOU: ' + about.aboutServer.name + ' ' + about.aboutServer.version);
 
+  console.log('[Runtime smoke] Validando leitura do catálogo real de extensões Mihon...');
+  const { repoManager } = await import('../dist/src/services/RepoManager.js');
   const keiyoushiIndex = 'https://github.com/keiyoushi/extensions/raw/repo/index.pb';
+  const repoExtensions = await repoManager.getAllExtensions(undefined, undefined, keiyoushiIndex);
+  if (repoExtensions.length === 0) throw new Error('O parser não retornou extensões do índice Keiyoushi.');
+  const validExtensions = repoExtensions.filter((extension) =>
+    extension.isCompatible &&
+    /^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$/.test(extension.pkg) &&
+    /^https:\\/\\//i.test(extension.apkUrl) &&
+    extension.sources.length > 0
+  );
+  if (validExtensions.length === 0) {
+    throw new Error('O catálogo foi lido, mas nenhuma extensão compatível possui pacote, APK HTTPS e fontes válidas.');
+  }
+  const uniquePackages = new Set(repoExtensions.map((extension) => extension.pkg));
+  if (uniquePackages.size !== repoExtensions.length) throw new Error('O catálogo retornou pacotes duplicados.');
+  await assert.rejects(
+    () => repoManager.uninstallExtractedExtension('../invalid-package'),
+    /Identificador de pacote inválido/,
+    'A rota de desinstalação deve rejeitar identificadores com traversal.'
+  );
+  console.log('[Runtime smoke] Catálogo validado: ' + repoExtensions.length + ' extensões; ' +
+    validExtensions.length + ' compatíveis e utilizáveis.');
+
+  
   console.log('[Runtime smoke] Adicionando e sincronizando o catálogo oficial Keiyoushi...');
   await suwayomiService.syncExtensionStores([keiyoushiIndex]);
 
