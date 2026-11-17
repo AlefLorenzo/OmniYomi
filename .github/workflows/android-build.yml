@@ -26,16 +26,16 @@ jobs:
 
     steps:
       - name: Checkout repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Upload APKs como artefato
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: OmniYomi-Android-v${{ steps.get_version.outputs.VERSION }}
           path: OmniYomi-*.apk
@@ -152,17 +152,20 @@ jobs:
           retention-days: 30
 
       - name: Publicar Release Android
-        uses: softprops/action-gh-release@v2
-        with:
-          name: OmniYomi Android v${{ steps.get_version.outputs.VERSION }}
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/android-v') && github.ref_name || format('android-v{0}', inputs.version) }}
-          body: |
-            ## OmniYomi Android v${{ steps.get_version.outputs.VERSION }}
-
-            APK Android separado das versões do OmniYomi Desktop.
-          files: |
-            OmniYomi-*.apk
-          draft: false
-          prerelease: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          TAG="android-v${VERSION}"
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          fi
+
+          NOTES="OmniYomi Android v${VERSION}. APK Android separado das versões do OmniYomi Desktop."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" OmniYomi-*.apk --clobber
+            gh release edit "$TAG" --title "OmniYomi Android v${VERSION}" --notes "$NOTES" --prerelease
+          else
+            gh release create "$TAG" OmniYomi-*.apk --title "OmniYomi Android v${VERSION}" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
+          fi
