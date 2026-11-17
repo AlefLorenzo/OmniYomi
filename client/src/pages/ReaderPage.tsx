@@ -33,6 +33,7 @@ export function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [restorePage, setRestorePage] = useState<number | null>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -77,14 +78,21 @@ export function ReaderPage() {
 
       // Try to load chapter info + sibling chapters
       if (mangaId) {
-        const [chList] = await Promise.all([api.getChapters(mangaId, effectiveSourceId).catch(() => [])]);
+        const [chList, history] = await Promise.all([
+          api.getChapters(mangaId, effectiveSourceId).catch(() => []),
+          api.getHistory(100).catch(() => []),
+        ]);
         setChapters(chList || []);
         const thisChapter = chList?.find((c: any) => c.id === id);
         setChapter(thisChapter || null);
 
-        // Restore last page
-        if (thisChapter?.lastPageRead > 0) {
-          setCurrentPage(thisChapter.lastPageRead);
+        // O progresso salvo no histórico é a fonte persistente para obras/extensões
+        // que não retornam lastPageRead na lista recém-consultada.
+        const historyEntry = history.find((item: any) => String(item.chapterId) === id);
+        const savedPage = Number(thisChapter?.lastPageRead || historyEntry?.page || 1);
+        if (savedPage > 1) {
+          setCurrentPage(savedPage);
+          setRestorePage(savedPage);
         }
       }
     } catch (e: any) {
@@ -93,6 +101,17 @@ export function ReaderPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (loading || restorePage === null || pages.length === 0) return;
+    if (readerMode === 'vertical_webtoon') {
+      const target = pageRefs.current[Math.max(0, restorePage - 1)];
+      if (target) target.scrollIntoView({ block: 'start', behavior: 'auto' });
+    } else {
+      setCurrentPage(Math.min(Math.max(restorePage, 1), pages.length));
+    }
+    setRestorePage(null);
+  }, [loading, pages, restorePage, readerMode]);
 
   // Track scroll position in webtoon mode
   const handleScroll = useCallback(() => {
