@@ -49,10 +49,17 @@ Na primeira execução em modo de desenvolvimento, se houver \`data\\omniyomi.db
 - Uma instância OmniYomi já existente na porta padrão pode ser reutilizada, mas nunca é encerrada pelo inicializador.
 - Processos externos que ocupem portas não são terminados.
 
-## Runtime Suwayomi opcional
+## Runtime Suwayomi automático
 
 O caminho absoluto específico de uma máquina foi removido. Para fornecer um runtime local, defina \`SUWAYOMI_HOME\` ou \`OMNIYOMI_SUWAYOMI_HOME\` apontando para a pasta contendo \`bin\\Suwayomi-Server.jar\` e \`jre\\bin\\java.exe\`. O backend continua disponível quando o runtime opcional não está instalado.
 
 ## Limitações
 
 O smoke test automatizado valida o processo desktop, a inicialização HTTP e o encerramento do backend em runner Windows. Ele não substitui testes de leitura, instalação de extensões reais, downloads de fontes externas ou assinatura Authenticode do instalador.
+
+
+## Preparação rápida e extensões
+
+Execute `setup.cmd` ou `powershell -ExecutionPolicy Bypass -File scripts/setup.ps1`. A rotina detecta Node.js, dependências e runtime existentes e pula itens válidos.
+
+Com o servidor em execução, `npm run extensions:sync` atualiza os índices. `npm run extensions:install-all -- --confirm --lang pt-br` instala uma extensão por vez, não reinstala pacotes já validados e informa falhas individuais. A instalação de todos os APKs pode consumir bastante disco e tráfego de internet; por isso é uma ação explícita, não acontece silenciosamente na primeira inicialização.

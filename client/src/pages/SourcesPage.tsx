@@ -25,6 +25,7 @@ export function SourcesPage() {
   // Store extensions
   const [storeExtensions, setStoreExtensions] = useState<any[]>([]);
   const [storeTotal, setStoreTotal] = useState(0);
+  const [storeVisibleCount, setStoreVisibleCount] = useState(100);
   const [loadingStore, setLoadingStore] = useState(false);
   const [storeSearch, setStoreSearch] = useState('');
   const [storeLang, setStoreLang] = useState('all');
@@ -75,6 +76,7 @@ export function SourcesPage() {
 
   async function loadStore(q?: string, lang?: string, repo?: string) {
     setLoadingStore(true);
+    setStoreVisibleCount(100);
     try {
       const res = await api.getStoreExtensions(q, lang, repo);
       setStoreExtensions(res.extensions || []);
@@ -213,7 +215,7 @@ export function SourcesPage() {
         {(['installed', 'store', 'repos'] as Tab[]).map(tab => {
           const labels = {
             installed: `Fontes (${sources.length})`,
-            store: `Loja Keiyoushi (${storeTotal > 0 ? storeTotal : '1.600+'})`,
+            store: `Loja de extensões (${storeTotal > 0 ? storeTotal : 'Catálogo'})`,
             repos: `Repositórios (${repos.length > 0 ? repos.length : '1'})`,
           };
           return (
@@ -326,7 +328,7 @@ export function SourcesPage() {
               <Input
                 value={storeSearch}
                 onChange={e => handleStoreSearch(e.target.value)}
-                placeholder="Pesquisar entre quase 3.000 extensões (ex: Asura, Flame, Scan, Manga...)"
+                placeholder="Pesquisar por obra, fonte, pacote ou repositório..."
                 leftIcon={<Search size={15} />}
               />
             </div>
@@ -356,7 +358,7 @@ export function SourcesPage() {
           </div>
 
           <p className="text-xs text-gray-500">
-            {storeExtensions.length} extensões encontradas {storeSearch && `para "${storeSearch}"`}
+            {storeTotal} extensões no catálogo · exibindo {Math.min(storeVisibleCount, storeExtensions.length)} {storeSearch && `para "${storeSearch}"`}
           </p>
 
           {loadingStore ? (
@@ -365,7 +367,7 @@ export function SourcesPage() {
             <Empty icon="🔍" title="Nenhuma extensão encontrada" description="Tente outro termo de busca ou filtro de idioma" />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {storeExtensions.slice(0, 100).map(ext => (
+              {storeExtensions.slice(0, storeVisibleCount).map(ext => (
                 <div key={ext.pkg} className="flex items-center gap-3 p-3 bg-[#1a1e29] border border-[#2a3040] rounded-xl hover:border-purple-500/30 transition-colors">
                   <img
                     src={ext.iconUrl}
@@ -380,6 +382,8 @@ export function SourcesPage() {
                       <span className="text-[10px] text-gray-500">v{ext.version}</span>
                       <span className="text-[10px] bg-[#2a3040] text-gray-300 px-1.5 py-0.2 rounded uppercase font-mono">{ext.lang}</span>
                       {ext.isNsfw && <span className="text-[10px] bg-red-900/60 text-red-300 px-1 rounded">18+</span>}
+                      {ext.isCompatible === false && <span className="text-[10px] bg-amber-900/60 text-amber-300 px-1 rounded" title={ext.compatibilityReason || 'API de extensão não compatível'}>Incompatível</span>}
+                      {ext.updateAvailable && <span className="text-[10px] bg-blue-900/60 text-blue-300 px-1 rounded">Atualização</span>}
                     </div>
 
                     <p className="text-[11px] text-gray-500 truncate mt-0.5 font-mono">{ext.pkg}</p>
@@ -396,7 +400,7 @@ export function SourcesPage() {
                     {ext.isExtracted || ext.isInstalled ? (
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-green-400 flex items-center gap-1 px-2.5 py-1 bg-green-950/60 border border-green-700/40 rounded-lg">
-                          <CheckCircle size={12} /> Instalada
+                          <CheckCircle size={12} /> {ext.updateAvailable ? 'Atualizar' : 'Instalada'}
                         </span>
                         <button
                           onClick={() => handleUninstallExtracted(ext.pkg)}
@@ -412,8 +416,9 @@ export function SourcesPage() {
                         variant="secondary"
                         onClick={() => handleExtractApk(ext)}
                         loading={extractingPkgs.has(ext.pkg)}
+                        disabled={ext.isCompatible === false || !ext.apkUrl}
                       >
-                        <Download size={13} /> Instalar
+                        <Download size={13} /> {ext.updateAvailable ? 'Atualizar' : 'Instalar'}
                       </Button>
                     )}
                   </div>
@@ -422,11 +427,16 @@ export function SourcesPage() {
             </div>
           )}
 
-          {storeExtensions.length > 100 && (
-            <p className="text-center text-xs text-gray-600 pt-2">
-              Mostrando os primeiros 100 resultados. Use a barra de pesquisa para filtrar fontes específicas.
-            </p>
+          {storeExtensions.length > storeVisibleCount && (
+            <div className="flex justify-center pt-2">
+              <Button size="sm" variant="secondary" onClick={() => setStoreVisibleCount(count => count + 100)}>
+                Mostrar mais {Math.min(100, storeExtensions.length - storeVisibleCount)} extensões
+              </Button>
+            </div>
           )}
+          <p className="text-center text-[11px] text-gray-600 pt-1">
+            O catálogo é carregado dos repositórios ativos. Extensões sem API compatível ou sem APK válido não podem ser instaladas.
+          </p>
         </div>
       )}
 

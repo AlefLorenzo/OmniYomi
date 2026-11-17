@@ -33,6 +33,8 @@ jobs:
 
       - name: Run desktop backend lifecycle smoke test
         run: npm run desktop:smoke
+        env:
+          OMNIYOMI_SKIP_RUNTIME_SETUP: '1'
 
       - name: Build NSIS installer and portable executable
         run: npm run desktop:dist

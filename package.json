@@ -19,7 +19,10 @@
     "test": "tsx test/system.test.ts",
     "desktop:dev": "npm run build && electron .",
     "desktop:smoke": "npm run build && electron . --smoke-test",
-    "desktop:dist": "npm run build && electron-builder --win nsis portable --x64 --publish never"
+    "desktop:dist": "npm run build && electron-builder --win nsis portable --x64 --publish never",
+    "setup": "node scripts/setup.mjs",
+    "extensions:sync": "node scripts/sync-extensions.mjs",
+    "extensions:install-all": "node scripts/install-extensions.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -61,7 +64,8 @@
       "package.json",
       "!**/*.map",
       "!**/test/**",
-      "!**/*.md"
+      "!**/*.md",
+      "scripts/runtime-manager.cjs"
     ],
     "asar": true,
     "asarUnpack": [

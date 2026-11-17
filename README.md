@@ -211,3 +211,23 @@ Os executáveis NSIS e portátil são gerados em \`release/\`. O build automatiz
 Banco, downloads, extensões e logs ficam em \`%LOCALAPPDATA%\\OmniYomi\\\`, separados do diretório de instalação para sobreviver a atualizações e desinstalações. Em ambiente de desenvolvimento, o launcher pode migrar com backup validado o banco legado da pasta \`data/\`.
 
 Consulte [desktop/README.md](desktop/README.md) para detalhes do ciclo de vida e configuração do runtime opcional Suwayomi.
+
+
+## ⚡ Instalação automática no Windows
+
+Com o repositório aberto na pasta do projeto, execute no PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+```
+
+Ou dê duplo clique em `setup.cmd`. O script instala Node.js LTS pelo WinGet se estiver ausente, verifica dependências, instala o runtime Suwayomi para Windows x64 com validação SHA-256 e compila o projeto. O que já estiver correto será ignorado. Os dados existentes não são apagados.
+
+Comandos de extensões (com o OmniYomi Desktop em execução):
+
+```powershell
+npm run extensions:sync
+npm run extensions:install-all -- --confirm --lang pt-br
+```
+
+O segundo comando instala sequencialmente as extensões compatíveis PT-BR ainda ausentes, ignora as que passaram na verificação local e apresenta um resumo das falhas. Para todas as línguas, use `npm run extensions:install-all -- --confirm`. Para limitar o primeiro teste a 5 APKs, acrescente `--limit 5`. Extensões 18+ ficam excluídas por padrão; inclua-as explicitamente com `--include-nsfw`.

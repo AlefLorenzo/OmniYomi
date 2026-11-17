@@ -777,6 +777,7 @@ export const api = {
     const params = new URLSearchParams();
     if (q) params.append('q', q);
     if (lang && lang !== 'all') params.append('lang', lang);
+    if (repoFilter && repoFilter !== 'all') params.append('repo', repoFilter);
     const qs = params.toString();
     try {
       return await request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);

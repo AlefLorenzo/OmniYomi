@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const { spawn } = require('child_process');
+const { ensureSuwayomiRuntime } = require('../scripts/runtime-manager.cjs');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -203,6 +204,24 @@ async function startBackendInternal() {
     return { success: true, url: serverUrl, adopted: true };
   }
 
+  if (process.platform === 'win32' && process.env.OMNIYOMI_SKIP_RUNTIME_SETUP !== '1') {
+    try {
+      setStatus('starting', 'Verificando o runtime local de extensões Mihon...');
+      const runtime = await ensureSuwayomiRuntime({
+        dataDir,
+        logger: (message) => log('RUNTIME', message),
+      });
+      if (runtime.home) process.env.SUWAYOMI_HOME = runtime.home;
+      log('INFO', runtime.skipped
+        ? 'Runtime de extensões já instalado e válido; download ignorado.'
+        : 'Runtime de extensões instalado e verificado.');
+    } catch (error) {
+      // O catálogo MangaDex e a biblioteca local permanecem disponíveis sem o runtime APK.
+      log('WARN', 'Não foi possível preparar o runtime de extensões: ' + (error?.message || error));
+      log('WARN', 'As extensões Tachiyomi/Mihon ficarão indisponíveis até concluir a instalação do runtime.');
+    }
+  }
+
   serverPort = await reserveFreePort(DEFAULT_PORT);
   serverUrl = 'http://127.0.0.1:' + serverPort;
   const entry = getServerEntry();
@@ -217,7 +236,7 @@ async function startBackendInternal() {
     HOST: '127.0.0.1',
     OMNIYOMI_DESKTOP: '1',
     OMNIYOMI_DATA_DIR: dataDir,
-    SUWAYOMI_HOME: process.env.SUWAYOMI_HOME || process.env.OMNIYOMI_SUWAYOMI_HOME || ''
+    SUWAYOMI_HOME: process.env.SUWAYOMI_HOME || process.env.OMNIYOMI_SUWAYOMI_HOME || path.join(dataDir, 'runtime', 'suwayomi')
   };
 
   log('INFO', 'Iniciando backend gerenciado em ' + serverUrl);
