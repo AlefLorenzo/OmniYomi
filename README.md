@@ -219,6 +219,10 @@ npm run desktop:dist
 
 Os executáveis NSIS e portátil são gerados em \`release/\`. O build automatizado ocorre no workflow **Windows Desktop Build**.
 
+### Atualização automática do Desktop
+
+A edição instalada pelo NSIS verifica o GitHub Releases ao iniciar, baixa atualizações em segundo plano e apresenta o progresso no launcher. Quando o download termina, basta clicar em **Instalar e reiniciar**. O backend é encerrado de forma controlada antes da substituição dos arquivos, e os dados em `%LOCALAPPDATA%\\OmniYomi\\data` permanecem preservados. Cada push aprovado em `master` gera uma versão desktop publicada automaticamente depois dos testes Windows. A edição portátil continua exigindo atualização manual.
+
 ### Dados preservados
 
 Banco, downloads, extensões e logs ficam em \`%LOCALAPPDATA%\\OmniYomi\\\`, separados do diretório de instalação para sobreviver a atualizações e desinstalações. Em ambiente de desenvolvimento, o launcher pode migrar com backup validado o banco legado da pasta \`data/\`.
