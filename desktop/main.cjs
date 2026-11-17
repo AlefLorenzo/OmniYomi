@@ -398,7 +398,7 @@ function configureAutoUpdates() {
   }
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
   autoUpdater.on('checking-for-update', () => {
@@ -529,8 +529,11 @@ ipcMain.handle('omniyomi:check-updates', async () => {
   try { await autoUpdater.checkForUpdates(); } catch (error) { log('UPDATE-ERROR', error?.message || error); }
   return updateStatus;
 });
-ipcMain.handle('omniyomi:install-update', () => {
+ipcMain.handle('omniyomi:install-update', async () => {
   if (updateStatus.state !== 'downloaded') return { success: false, error: 'A atualização ainda não foi baixada.' };
+  const stopped = await stopBackend();
+  if (!stopped.success) return { success: false, error: stopped.error || 'Não foi possível encerrar o backend com segurança.' };
+  allowQuit = true;
   setImmediate(() => autoUpdater.quitAndInstall(false, true));
   return { success: true };
 });
