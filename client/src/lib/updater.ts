@@ -21,6 +21,20 @@ function versionParts(value: string): number[] {
   });
 }
 
+function releaseVersion(tagName: unknown): string | null {
+  if (typeof tagName !== 'string') return null;
+  const match = tagName.match(/^(?:android-)?v?(\\d+\\.\\d+\\.\\d+)$/i);
+  return match?.[1] || null;
+}
+
+function hasApkAsset(release: any): boolean {
+  return Array.isArray(release?.assets) && release.assets.some((asset: any) =>
+    typeof asset?.name === 'string' &&
+    asset.name.toLowerCase().endsWith('.apk') &&
+    typeof asset.browser_download_url === 'string'
+  );
+}
+
 export function isNewerVersion(latest: string, current: string): boolean {
   const left = versionParts(latest);
   const right = versionParts(current);
@@ -51,23 +65,17 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
     if (!Array.isArray(releases)) return null;
 
     const androidReleases = releases
-      .filter((release: any) =>
-        typeof release.tag_name === 'string' &&
-        /^android-v\d+\.\d+\.\d+$/i.test(release.tag_name) &&
-        !release.draft
+      .map((release: any) => ({ release, version: releaseVersion(release?.tag_name) }))
+      .filter(({ release, version }: any) =>
+        Boolean(version) && !release.draft && hasApkAsset(release)
       )
       .sort((a: any, b: any) =>
-        isNewerVersion(a.tag_name, b.tag_name) ? -1 :
-        isNewerVersion(b.tag_name, a.tag_name) ? 1 : 0
+        isNewerVersion(b.version, a.version) ? 1 :
+        isNewerVersion(a.version, b.version) ? -1 : 0
       );
 
-    const latest = androidReleases.find((release: any) =>
-      Array.isArray(release.assets) &&
-      release.assets.some((asset: any) =>
-        typeof asset.name === 'string' && asset.name.toLowerCase().endsWith('.apk') &&
-        typeof asset.browser_download_url === 'string'
-      )
-    );
+    const latestEntry = androidReleases[0];
+    const latest = latestEntry?.release;
     if (!latest) return null;
 
     const apkAssets = latest.assets.filter((asset: any) =>
@@ -79,7 +87,7 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
     const apk = apkAssets.find((asset: any) => /-release\.apk$/i.test(asset.name)) || apkAssets[0];
     if (!apk) return null;
 
-    const version = latest.tag_name.replace(/^android-v/i, '');
+    const version = latestEntry.version;
 
     return {
       version,
