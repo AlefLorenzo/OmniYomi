@@ -195,10 +195,8 @@ export class SuwayomiService {
         mutation {
           fetchExtensions(input: {}) {
             extensions {
-              nodes {
-                pkgName
-                isInstalled
-              }
+              pkgName
+              isInstalled
             }
           }
         }
