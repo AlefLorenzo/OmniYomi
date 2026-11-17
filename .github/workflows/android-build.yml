@@ -112,16 +112,20 @@ jobs:
         id: keystore_check
         shell: bash
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
             mkdir -p client/android/app/keystore
             echo "$KEYSTORE_B64" | base64 -d > client/android/app/keystore/omniyomi.keystore
+            test -s client/android/app/keystore/omniyomi.keystore
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "Nenhuma keystore fornecida — apenas APK debug será gerado."
+            echo "Keystore ou credenciais incompletas — somente APK debug será gerado."
           fi
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Compilar APK Debug
         run: |
@@ -139,12 +143,12 @@ jobs:
           fi
 
       - name: Compilar APK Release (somente se keystore configurada)
-        if: steps.keystore_check.outputs.configured == 'true'
+        if: steps.keystore_check.outputs.configured == 'true' && (startsWith(github.ref, 'refs/tags/android-v') || inputs.publish_release)
         run: |
           cd client/android
           ./gradlew assembleRelease --no-daemon
         env:
-          KEYSTORE_PATH: app/keystore/omniyomi.keystore
+          KEYSTORE_PATH: keystore/omniyomi.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
