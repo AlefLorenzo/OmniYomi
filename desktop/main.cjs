@@ -21,6 +21,7 @@ let startPromise = null;
 let currentStatus = { state: 'stopped', message: 'Servidor desligado', port: null, url: null };
 let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: null, releaseNotes: null, error: null };
 let updateCheckInterval = null;
+let updateCheckInFlight = false;
 const recentLogs = [];
 const MAX_LOG_LINES = 300;
 
@@ -434,17 +435,28 @@ function configureAutoUpdates() {
 
   // Check shortly after startup, then periodically so an app left open also
   // notices a newly published, validated stable release without requiring restart.
-  const checkForDesktopUpdate = () => {
-    if (quitting || updateStatus.state === 'downloading' || updateStatus.state === 'downloaded') return;
-    autoUpdater.checkForUpdates().catch((error) => {
+  const checkForDesktopUpdate = async () => {
+    if (
+      quitting ||
+      updateCheckInFlight ||
+      ['checking', 'downloading', 'downloaded'].includes(updateStatus.state)
+    ) return updateStatus;
+
+    updateCheckInFlight = true;
+    try {
+      await autoUpdater.checkForUpdates();
+    } catch (error) {
       updateStatus = { ...updateStatus, state: 'error', error: error?.message || String(error) };
       broadcastUpdate();
       log('UPDATE-ERROR', updateStatus.error);
-    });
+    } finally {
+      updateCheckInFlight = false;
+    }
+    return updateStatus;
   };
 
-  setTimeout(checkForDesktopUpdate, 10000);
-  updateCheckInterval = setInterval(checkForDesktopUpdate, 10 * 60 * 1000);
+  setTimeout(() => { void checkForDesktopUpdate(); }, 10000);
+  updateCheckInterval = setInterval(() => { void checkForDesktopUpdate(); }, 10 * 60 * 1000);
   if (typeof updateCheckInterval.unref === 'function') updateCheckInterval.unref();
 }
 
@@ -532,7 +544,19 @@ ipcMain.handle('omniyomi:open-logs', () => shell.openPath(logsDir));
 ipcMain.handle('omniyomi:show-log-file', () => shell.openPath(logFile));
 ipcMain.handle('omniyomi:check-updates', async () => {
   if (updateStatus.state === 'unsupported') return updateStatus;
-  try { await autoUpdater.checkForUpdates(); } catch (error) { log('UPDATE-ERROR', error?.message || error); }
+  if (!app.isPackaged || process.platform !== 'win32' || process.env.PORTABLE_EXECUTABLE_DIR) return updateStatus;
+  if (!updateCheckInFlight && !['checking', 'downloading', 'downloaded'].includes(updateStatus.state)) {
+    updateCheckInFlight = true;
+    try {
+      await autoUpdater.checkForUpdates();
+    } catch (error) {
+      updateStatus = { ...updateStatus, state: 'error', error: error?.message || String(error) };
+      broadcastUpdate();
+      log('UPDATE-ERROR', updateStatus.error);
+    } finally {
+      updateCheckInFlight = false;
+    }
+  }
   return updateStatus;
 });
 ipcMain.handle('omniyomi:install-update', async () => {
