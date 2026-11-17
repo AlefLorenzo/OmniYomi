@@ -287,14 +287,30 @@ export class RepoManager {
     const repos = db.getExtensionRepos().filter((r: any) =>
       r.enabled && (!repoFilter || repoFilter === 'all' || r.url === repoFilter)
     );
+    if (repos.length === 0) {
+      throw new Error(repoFilter && repoFilter !== 'all'
+        ? 'O repositório selecionado não está habilitado ou não existe.'
+        : 'Nenhum repositório de extensões está habilitado. Adicione ou ative um repositório na aba Repositórios.');
+    }
+
     const fetched = await Promise.allSettled(repos.map(async (repo: any) => ({
       repo,
       extensions: await this.fetchRepoExtensions(repo.url),
     })));
     const allExtensions: RepoExtension[] = [];
-    for (const result of fetched) {
-      if (result.status === 'fulfilled') allExtensions.push(...result.value.extensions);
-      else console.warn('[RepoManager] Um repositório não pôde ser sincronizado:', result.reason?.message || result.reason);
+    const failures: string[] = [];
+    for (let index = 0; index < fetched.length; index++) {
+      const result = fetched[index];
+      if (result.status === 'fulfilled') {
+        allExtensions.push(...result.value.extensions);
+      } else {
+        const reason = result.reason?.message || String(result.reason);
+        failures.push(repos[index].name + ': ' + reason);
+        console.warn('[RepoManager] Um repositório não pôde ser sincronizado:', reason);
+      }
+    }
+    if (allExtensions.length === 0 && failures.length > 0) {
+      throw new Error('Não foi possível carregar nenhum catálogo de extensões. ' + failures.join(' | '));
     }
 
     // Android package names are unique at install time. Keep one store candidate per package
