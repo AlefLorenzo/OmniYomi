@@ -2,141 +2,178 @@ import protobuf from 'protobufjs';
 import zlib from 'zlib';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
-export function decodeProtobufRepo(buffer: Buffer, repoUrl: string): RepoExtension[] {
-  let uncompressed = buffer;
-  try {
-    uncompressed = zlib.gunzipSync(buffer);
-  } catch {
-    // If not gzipped, keep original buffer
-  }
+export interface ProtobufRepoIndex {
+  name: string;
+  badgeLabel?: string;
+  signingKey?: string;
+  extensionListUrl?: string;
+  extensions: RepoExtension[];
+}
 
-  const reader = protobuf.Reader.create(uncompressed);
-  let extListBytes: Uint8Array | null = null;
-  const urlObj = new URL(repoUrl);
-  const basePath = repoUrl.substring(0, repoUrl.lastIndexOf('/'));
+function decompress(buffer: Buffer): Buffer {
+  try {
+    return zlib.gunzipSync(buffer);
+  } catch {
+    return buffer;
+  }
+}
+
+function absoluteAssetUrl(value: string, repoUrl: string): string {
+  if (!value) return '';
+  try {
+    return new URL(value, repoUrl).toString();
+  } catch {
+    return value;
+  }
+}
+
+export function decodeProtobufRepoIndex(buffer: Buffer, repoUrl: string): ProtobufRepoIndex {
+  const reader = protobuf.Reader.create(decompress(buffer));
+  const base = new URL(repoUrl);
+  let name = base.hostname;
+  let badgeLabel: string | undefined;
+  let signingKey: string | undefined;
+  let extensionListUrl: string | undefined;
+  let extensionListBytes: Uint8Array | null = null;
 
   while (reader.pos < reader.len) {
     const tag = reader.uint32();
-    const fieldNo = tag >>> 3;
-    const wireType = tag & 7;
+    const field = tag >>> 3;
+    const wire = tag & 7;
 
-    if (fieldNo === 101 && wireType === 2) {
-      extListBytes = reader.bytes();
-    } else {
-      reader.skipType(wireType);
-    }
+    if (field === 1 && wire === 2) name = reader.string();
+    else if (field === 2 && wire === 2) badgeLabel = reader.string();
+    else if (field === 3 && wire === 2) signingKey = reader.string();
+    else if (field === 101 && wire === 2) extensionListBytes = reader.bytes();
+    else if (field === 102 && wire === 2) extensionListUrl = absoluteAssetUrl(reader.string(), repoUrl);
+    else reader.skipType(wire);
   }
 
-  if (!extListBytes) return [];
+  const extensions = extensionListBytes
+    ? decodeProtobufExtensionList(Buffer.from(extensionListBytes), repoUrl, name, signingKey)
+    : [];
 
-  const subReader = protobuf.Reader.create(extListBytes);
+  return { name, badgeLabel, signingKey, extensionListUrl, extensions };
+}
+
+export function decodeProtobufExtensionList(
+  buffer: Buffer,
+  repoUrl: string,
+  repoName?: string,
+  signingKey?: string,
+): RepoExtension[] {
+  const reader = protobuf.Reader.create(decompress(buffer));
+  const base = new URL(repoUrl);
+  const directoryUrl = repoUrl.substring(0, repoUrl.lastIndexOf('/') + 1);
   const extensions: RepoExtension[] = [];
 
-  while (subReader.pos < subReader.len) {
-    const tag = subReader.uint32();
-    const fieldNo = tag >>> 3;
+  while (reader.pos < reader.len) {
+    const tag = reader.uint32();
+    const field = tag >>> 3;
+    const wire = tag & 7;
 
-    if (fieldNo === 1) {
-      const extBytes = subReader.bytes();
-      const itemReader = protobuf.Reader.create(extBytes);
-      let name = '';
-      let pkg = '';
-      let version = '1.0.0';
-      let isNsfw = false;
-      let apkUrl = '';
-      let iconUrl = '';
-      const sources: RepoExtensionSource[] = [];
-
-      while (itemReader.pos < itemReader.len) {
-        const iTag = itemReader.uint32();
-        const fNo = iTag >>> 3;
-        const wType = iTag & 7;
-
-        if (fNo === 1 && wType === 2) {
-          name = itemReader.string();
-        } else if (fNo === 2 && wType === 2) {
-          pkg = itemReader.string();
-        } else if (fNo === 3 && wType === 2) {
-          const resBytes = itemReader.bytes();
-          const rReader = protobuf.Reader.create(resBytes);
-          while (rReader.pos < rReader.len) {
-            const rTag = rReader.uint32();
-            const rNo = rTag >>> 3;
-            if (rNo === 1) apkUrl = rReader.string();
-            else if (rNo === 2) iconUrl = rReader.string();
-            else rReader.skipType(rTag & 7);
-          }
-        } else if (fNo === 6 && wType === 2) {
-          version = itemReader.string();
-        } else if (fNo === 7 && wType === 0) {
-          isNsfw = itemReader.uint32() > 0;
-        } else if (fNo === 8 && wType === 2) {
-          const sBytes = itemReader.bytes();
-          const sReader = protobuf.Reader.create(sBytes);
-          let sId = '';
-          let sName = '';
-          let sLang = 'all';
-          let sBaseUrl = '';
-
-          while (sReader.pos < sReader.len) {
-            const sTag = sReader.uint32();
-            const sNo = sTag >>> 3;
-            const swType = sTag & 7;
-
-            if (sNo === 1 && swType === 0) {
-              sId = sReader.uint64().toString();
-            } else if (sNo === 2 && swType === 2) {
-              sName = sReader.string();
-            } else if (sNo === 3 && swType === 2) {
-              sLang = sReader.string();
-            } else if (sNo === 4 && swType === 2) {
-              sBaseUrl = sReader.string();
-            } else {
-              sReader.skipType(swType);
-            }
-          }
-
-          sources.push({
-            id: sId,
-            name: sName || name,
-            lang: sLang,
-            baseUrl: sBaseUrl,
-          });
-        } else {
-          itemReader.skipType(wType);
-        }
-      }
-
-      if (pkg) {
-        if (!apkUrl.startsWith('http') && apkUrl) {
-          apkUrl = `${basePath}/${apkUrl}`;
-        }
-        if (!iconUrl) {
-          iconUrl = `${basePath}/icon/${pkg}.png`;
-        } else if (!iconUrl.startsWith('http')) {
-          iconUrl = `${basePath}/${iconUrl}`;
-        }
-
-        extensions.push({
-          id: pkg,
-          pkg,
-          name: name || pkg,
-          version,
-          lang: sources[0]?.lang || 'all',
-          iconUrl,
-          apkUrl,
-          isNsfw,
-          repoUrl,
-          repoName: urlObj.hostname,
-          sources,
-          isInstalled: false,
-          isExtracted: false,
-        });
-      }
-    } else {
-      subReader.skipType(tag & 7);
+    if (field !== 1 || wire !== 2) {
+      reader.skipType(wire);
+      continue;
     }
+
+    const extReader = protobuf.Reader.create(reader.bytes());
+    let name = '';
+    let pkg = '';
+    let apkUrl = '';
+    let iconUrl = '';
+    let extensionLib = '1.4';
+    let versionCode = 0;
+    let version = '1.0.0';
+    let contentWarning = 0;
+    const sources: RepoExtensionSource[] = [];
+
+    while (extReader.pos < extReader.len) {
+      const extTag = extReader.uint32();
+      const extField = extTag >>> 3;
+      const extWire = extTag & 7;
+
+      if (extField === 1 && extWire === 2) {
+        name = extReader.string();
+      } else if (extField === 2 && extWire === 2) {
+        pkg = extReader.string();
+      } else if (extField === 3 && extWire === 2) {
+        const resourceReader = protobuf.Reader.create(extReader.bytes());
+        while (resourceReader.pos < resourceReader.len) {
+          const resourceTag = resourceReader.uint32();
+          const resourceField = resourceTag >>> 3;
+          const resourceWire = resourceTag & 7;
+          if (resourceField === 1 && resourceWire === 2) apkUrl = resourceReader.string();
+          else if (resourceField === 2 && resourceWire === 2) iconUrl = resourceReader.string();
+          else resourceReader.skipType(resourceWire);
+        }
+      } else if (extField === 4 && extWire === 2) {
+        extensionLib = extReader.string();
+      } else if (extField === 5 && extWire === 0) {
+        versionCode = Number(extReader.uint64().toString()) || 0;
+      } else if (extField === 6 && extWire === 2) {
+        version = extReader.string();
+      } else if (extField === 7 && extWire === 0) {
+        contentWarning = extReader.uint32();
+      } else if (extField === 8 && extWire === 2) {
+        const sourceReader = protobuf.Reader.create(extReader.bytes());
+        let sourceId = '';
+        let sourceName = '';
+        let sourceLang = 'all';
+        let sourceBaseUrl = '';
+
+        while (sourceReader.pos < sourceReader.len) {
+          const sourceTag = sourceReader.uint32();
+          const sourceField = sourceTag >>> 3;
+          const sourceWire = sourceTag & 7;
+          if (sourceField === 1 && sourceWire === 0) sourceId = sourceReader.uint64().toString();
+          else if (sourceField === 2 && sourceWire === 2) sourceName = sourceReader.string();
+          else if (sourceField === 3 && sourceWire === 2) sourceLang = sourceReader.string();
+          else if (sourceField === 4 && sourceWire === 2) sourceBaseUrl = sourceReader.string();
+          else sourceReader.skipType(sourceWire);
+        }
+
+        if (sourceId) {
+          sources.push({
+            id: sourceId,
+            name: sourceName || name,
+            lang: sourceLang,
+            baseUrl: sourceBaseUrl,
+          });
+        }
+      } else {
+        extReader.skipType(extWire);
+      }
+    }
+
+    if (!pkg) continue;
+    const languages = Array.from(new Set(sources.map((source) => source.lang).filter(Boolean)));
+    const lang = languages.length === 1 ? languages[0] : 'all';
+    const fallbackIcon = new URL('icon/' + pkg + '.png', directoryUrl).toString();
+
+    extensions.push({
+      id: pkg,
+      pkg,
+      name: name || pkg,
+      version,
+      extensionLib,
+      versionCode,
+      lang,
+      iconUrl: iconUrl ? absoluteAssetUrl(iconUrl, repoUrl) : fallbackIcon,
+      apkUrl: absoluteAssetUrl(apkUrl, repoUrl),
+      isNsfw: contentWarning === 3,
+      repoUrl,
+      repoName: repoName || base.hostname,
+      signingKey,
+      sources,
+      isInstalled: false,
+      isExtracted: false,
+    });
   }
 
   return extensions;
+}
+
+export function decodeProtobufRepo(buffer: Buffer, repoUrl: string): RepoExtension[] {
+  return decodeProtobufRepoIndex(buffer, repoUrl).extensions;
 }

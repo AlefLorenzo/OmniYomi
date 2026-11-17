@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // https://vite.dev/config/
 export default defineConfig({
   define: {
-    '__APP_VERSION__': JSON.stringify(process.env.npm_package_version || '1.0.0'),
+    '__APP_VERSION__': JSON.stringify(process.env.OMNIYOMI_APP_VERSION || process.env.npm_package_version || '1.1.5'),
   },
   plugins: [
     react(),

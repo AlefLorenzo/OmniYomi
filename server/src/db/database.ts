@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Data directory at project root/data
-const DATA_DIR = path.resolve(__dirname, '../../../data');
+const DATA_DIR = path.resolve(process.env.OMNIYOMI_DATA_DIR || path.resolve(__dirname, '../../../data'));
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -18,6 +18,7 @@ const DB_PATH = path.join(DATA_DIR, 'omniyomi.db');
 
 export class AppDatabase {
   public db: DatabaseType;
+  private closed = false;
 
   constructor(dbPath: string = DB_PATH) {
     this.db = new Database(dbPath);
@@ -186,19 +187,27 @@ export class AppDatabase {
 
   private ensureDefaultRepos() {
     const repos = [
-      { url: 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json', name: 'Keiyoushi (Principal)' },
-      { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA (Foco em PT-BR)' },
-      { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō' },
-      { url: 'https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json', name: 'Kavita Extensions' },
-      { url: 'https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json', name: 'Suwayomi Official Repo' },
+      { url: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb', name: 'Keiyoushi — catálogo principal (Mihon 1.6)' },
+      { url: 'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb', name: 'FelipeGFA — extensões PT-BR' },
+      { url: 'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb', name: 'Cursed Yūzōnō — comunidade' },
+      { url: 'https://github.com/manti-X/extensions/raw/repo/index.pb', name: 'manti-X — extensões complementares' },
     ];
 
-    const insertRepo = this.db.prepare('INSERT OR IGNORE INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)');
-    for (const r of repos) {
-      insertRepo.run(r.url, r.name);
+    // Migra apenas o URL padrão antigo da Keiyoushi; mantém repositórios personalizados do usuário.
+    const legacyKeiyoushi = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json';
+    const currentKeiyoushi = repos[0].url;
+    const legacyExists = Boolean(this.db.prepare('SELECT 1 FROM extension_repos WHERE url = ?').get(legacyKeiyoushi));
+    const currentExists = Boolean(this.db.prepare('SELECT 1 FROM extension_repos WHERE url = ?').get(currentKeiyoushi));
+    if (legacyExists && !currentExists) {
+      this.db.prepare('UPDATE extension_repos SET url = ?, name = ? WHERE url = ?')
+        .run(currentKeiyoushi, repos[0].name, legacyKeiyoushi);
     }
 
-    // Default settings
+    const insertRepo = this.db.prepare(
+      'INSERT OR IGNORE INTO extension_repos (url, name, enabled, last_synced) VALUES (?, ?, 1, NULL)'
+    );
+    for (const r of repos) insertRepo.run(r.url, r.name);
+
     this.ensureDefaultSettings();
   }
 
@@ -757,6 +766,22 @@ export class AppDatabase {
 
   public deleteExtractedExtension(pkg: string): void {
     this.db.prepare('DELETE FROM extracted_extensions WHERE pkg = ?').run(pkg);
+  }
+
+  // --- Desktop lifecycle and SQLite durability ---
+  public checkpoint(): void {
+    if (this.closed) return;
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
+  public close(): void {
+    if (this.closed) return;
+    try {
+      this.checkpoint();
+    } finally {
+      this.db.close();
+      this.closed = true;
+    }
   }
 
   // --- Helpers ---

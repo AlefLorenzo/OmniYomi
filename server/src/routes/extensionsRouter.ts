@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { extensionManager } from '../sources/ExtensionManager.js';
 import { repoManager } from '../services/RepoManager.js';
 import { db } from '../db/database.js';
+import { suwayomiService } from '../services/SuwayomiService.js';
 
 export const extensionsRouter = Router();
 
@@ -74,16 +75,40 @@ extensionsRouter.post('/repos/toggle', (req, res) => {
   res.json({ success: true, url, enabled: Boolean(enabled) });
 });
 
-// --- Repository Extensions Store (1600+ Extensions) ---
+// --- Repository Extensions Store (all enabled compatible repositories) ---
 extensionsRouter.get('/store', async (req, res) => {
   const query = req.query.q as string | undefined;
   const lang = req.query.lang as string | undefined;
+  const repo = req.query.repo as string | undefined;
 
   try {
-    const extensions = await repoManager.getAllExtensions(query, lang);
+    const extensions = await repoManager.getAllExtensions(query, lang, repo);
     res.json({
       total: extensions.length,
       extensions,
+      repositories: db.getExtensionRepos().filter((entry: any) => entry.enabled).length,
+      compatible: extensions.filter((entry) => entry.isCompatible !== false).length,
+      installed: extensions.filter((entry) => entry.isInstalled).length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Refresh enabled repositories and mirror them into the Mihon-compatible runtime.
+extensionsRouter.post('/sync', async (req, res) => {
+  try {
+    const repos = db.getExtensionRepos().filter((entry: any) => entry.enabled);
+    const extensions = await repoManager.getAllExtensions();
+    const runtimeReady = await suwayomiService.ensureRunning();
+    if (runtimeReady) await suwayomiService.syncExtensionStores(repos.map((entry: any) => entry.url));
+    res.json({
+      success: true,
+      repositories: repos.length,
+      extensions: extensions.length,
+      installed: extensions.filter((entry) => entry.isInstalled).length,
+      compatible: extensions.filter((entry) => entry.isCompatible !== false).length,
+      runtimeReady,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -106,10 +131,10 @@ extensionsRouter.post('/extract', async (req, res) => {
 });
 
 // --- Uninstall Extracted APK Extension ---
-extensionsRouter.delete('/extracted/:pkg', (req, res) => {
+extensionsRouter.delete('/extracted/:pkg', async (req, res) => {
   const { pkg } = req.params;
   try {
-    repoManager.uninstallExtractedExtension(pkg);
+    await repoManager.uninstallExtractedExtension(pkg);
     res.json({ success: true, pkg });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

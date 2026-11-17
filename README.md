@@ -1,5 +1,18 @@
 # 📱 OmniYomi — Leitor & Gerenciador de Mangás, Manhwas e Manhuas
 
+<details open>
+<summary><strong>⬇️ BAIXAR OMNIYOMI DESKTOP PARA WINDOWS (64 BITS)</strong></summary>
+
+**[CLIQUE AQUI PARA BAIXAR O EXECUTÁVEL (.EXE)](https://github.com/AlefLorenzo/OmniYomi/actions/runs/44000431532)**
+
+Na página que abrir, desça até **Artifacts** e baixe **OmniYomi-Desktop-Windows-x64**. Extraia o ZIP e execute o instalador `.exe` (ou escolha a versão portátil, se incluída).
+
+Compatível com Windows 10/11 x64. O instalador mantém os dados do OmniYomi em `%LOCALAPPDATA%\OmniYomi\data`.
+
+</details>
+
+---
+
 O **OmniYomi** é uma plataforma completa e moderna de leitura, agregação e gerenciamento de mangás, manhwas e manhuas. Inspirado no ecossistema **Tachiyomi / Suwayomi / Keiyoushi**, o OmniYomi unifica um servidor de alta performance, catálogo com normalização precisa de títulos, leitura fluida e suporte completo ao aplicativo **Android (APK)** com sincronização e leitura offline.
 
 ---
@@ -78,7 +91,7 @@ OmniYomi/
 ## 🚀 Como Executar Localmente
 
 ### Pré-requisitos
-- **Node.js** v20 ou superior
+- **Node.js** v22.12 ou superior (Node.js 24 recomendado)
 - **npm** v10 ou superior
 - **Java 17+** (caso utilize o runtime Suwayomi localmente)
 
@@ -187,3 +200,43 @@ Para gerar APKs assinados para distribuição de produção:
 
 ## 📄 Licença
 Distribuído sob licença aberta com foco em software livre e preservação digital.
+
+
+---
+
+## 🖥️ OmniYomi Desktop para Windows
+
+O repositório também oferece um inicializador desktop para Windows 10/11 x64. Ele inicia o backend local, valida o endpoint \`/api/health\`, abre a interface em uma janela própria e encerra somente os processos que ele iniciou.
+
+### Compilar localmente
+
+\`\`\`powershell
+npm install
+npm --prefix client install
+npm run desktop:smoke
+npm run desktop:dist
+\`\`\`
+
+Os executáveis NSIS e portátil são gerados em \`release/\`. O build automatizado ocorre no workflow **Windows Desktop Build**.
+
+### Atualização automática do Desktop
+
+A edição instalada pelo NSIS verifica o GitHub Releases ao iniciar, baixa atualizações em segundo plano e apresenta o progresso no launcher. Quando o download termina, basta clicar em **Instalar e reiniciar**. O backend é encerrado de forma controlada antes da substituição dos arquivos, e os dados em `%LOCALAPPDATA%\\OmniYomi\\data` permanecem preservados. Cada push aprovado em `master` gera uma versão desktop publicada automaticamente depois dos testes Windows. A edição portátil continua exigindo atualização manual.
+
+### Dados preservados
+
+Banco, downloads, extensões e logs ficam em \`%LOCALAPPDATA%\\OmniYomi\\\`, separados do diretório de instalação para sobreviver a atualizações e desinstalações. Em ambiente de desenvolvimento, o launcher pode migrar com backup validado o banco legado da pasta \`data/\`.
+
+Consulte [desktop/README.md](desktop/README.md) para detalhes do ciclo de vida e configuração do runtime opcional Suwayomi.
+
+
+
+## ⚡ Instalação completa com um único comando (Windows 10/11 x64)
+
+Abra o PowerShell e cole esta única linha:
+
+\`\`\`powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/AlefLorenzo/OmniYomi/feature/windows-desktop-launcher/scripts/install-windows.ps1 | iex
+\`\`\`
+
+O instalador baixa a branch do Desktop, preserva a pasta de dados em \`%LOCALAPPDATA%\\OmniYomi\\data\`, verifica/instala Node.js, dependências e runtime Suwayomi, compila o instalador NSIS, instala o aplicativo e tenta abri-lo. Dependências e runtime válidos são reaproveitados.

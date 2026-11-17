@@ -15,7 +15,7 @@ import { suwayomiService } from '../services/SuwayomiService.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const EXTENSIONS_DIR = path.resolve(__dirname, '../../../data/extensions');
+const EXTENSIONS_DIR = path.resolve(process.env.OMNIYOMI_DATA_DIR || path.resolve(__dirname, '../../../data'), 'extensions');
 
 if (!fs.existsSync(EXTENSIONS_DIR)) {
   fs.mkdirSync(EXTENSIONS_DIR, { recursive: true });
@@ -145,6 +145,11 @@ export class ExtensionManager {
     try {
       const isRunning = await suwayomiService.ensureRunning();
       if (!isRunning) return;
+
+      const configuredRepos = db.getExtensionRepos()
+        .filter((repo: any) => repo.enabled)
+        .map((repo: any) => repo.url);
+      await suwayomiService.syncExtensionStores(configuredRepos);
 
       // 1. Obter extensões instaladas no Suwayomi
       const suwExtData = await suwayomiService.queryGql(`
@@ -361,6 +366,9 @@ export class ExtensionManager {
   }
 
   public uninstallExtension(id: string): boolean {
+    if (!/^[a-zA-Z0-9._-]+$/.test(id) || id.includes('..')) {
+      throw new Error('Identificador de fonte inválido.');
+    }
     if (id === 'mangadex' || id === 'local') {
       throw new Error('Fontes do sistema não podem ser desinstaladas. Você pode desativá-las.');
     }

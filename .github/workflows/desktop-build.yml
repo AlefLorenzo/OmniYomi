@@ -1,0 +1,238 @@
+name: Windows Desktop Build
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'desktop/**'
+      - 'server/**'
+      - 'client/**'
+      - 'scripts/runtime-manager.cjs'
+      - 'scripts/setup.mjs'
+      - 'scripts/sync-extensions.mjs'
+      - 'scripts/install-extensions.mjs'
+      - 'scripts/runtime-smoke.mjs'
+      - 'scripts/install-windows.ps1'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-build.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'desktop/**'
+      - 'server/**'
+      - 'client/**'
+      - 'scripts/runtime-manager.cjs'
+      - 'scripts/setup.mjs'
+      - 'scripts/sync-extensions.mjs'
+      - 'scripts/install-extensions.mjs'
+      - 'scripts/runtime-smoke.mjs'
+      - 'scripts/install-windows.ps1'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: omniyomi-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows-desktop:
+    name: Build and smoke-test Windows desktop app
+    runs-on: windows-latest
+    env:
+      OMNIYOMI_APP_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && format('1.2.{0}', github.run_number) || '1.1.5' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Assign a unique monotonically increasing desktop release version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        run: |
+          $version = '1.2.${{ github.run_number }}'
+          npm version $version --no-git-tag-version --allow-same-version
+          Write-Host "Publishing OmniYomi Desktop version $version"
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install client dependencies
+        run: npm --prefix client install
+
+      - name: Validate setup scripts
+        shell: pwsh
+        run: |
+          node --check scripts/runtime-manager.cjs
+          node --check scripts/setup.mjs
+          node --check scripts/sync-extensions.mjs
+          node --check scripts/install-extensions.mjs
+          node --check scripts/runtime-smoke.mjs
+          node --check desktop/main.cjs
+          node --check desktop/preload.cjs
+          node --check desktop/renderer.js
+          node -e "const p=require('./package.json'); if (!p.dependencies['electron-updater']) process.exit(1); if (p.build.publish?.[0] !== 'github' || !p.repository?.url?.includes('github.com/AlefLorenzo/OmniYomi')) process.exit(1); console.log('Desktop updater configuration valid.')"
+
+      - name: Test idempotent Windows setup command
+        shell: pwsh
+        run: ./scripts/setup.ps1 -SkipRuntime -SkipBuild
+
+      - name: Compile server before runtime integration test
+        run: npm run build:server
+
+      - name: Validate complete Windows installer PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/install-windows.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell installer script syntax validation failed."
+          }
+
+      - name: Install and integration-test the Suwayomi extension runtime
+        run: node scripts/runtime-smoke.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run desktop backend lifecycle smoke test
+        run: npm run desktop:smoke
+        env:
+          OMNIYOMI_SKIP_RUNTIME_SETUP: '1'
+
+      - name: Build NSIS installer and portable executable
+        run: npm run desktop:dist
+
+      - name: Test silent NSIS installation and preserve existing user data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Resolve-Path 'release'
+          $installer = Get-ChildItem $release -Filter 'OmniYomi-Desktop-*-x64.exe' -File |
+            Where-Object { $_.Name -notmatch 'portable' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer not found.' }
+
+          $dataDir = Join-Path $env:LOCALAPPDATA 'OmniYomi\\data'
+          New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+          $sentinel = Join-Path $dataDir 'ci-preserve-data-sentinel.txt'
+          Set-Content -LiteralPath $sentinel -Value 'preserve-existing-user-data' -Encoding UTF8
+
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS silent installer exited with code $($process.ExitCode)." }
+          if (-not (Test-Path $sentinel)) { throw 'The installer removed existing OmniYomi user data.' }
+
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $installedExe = Get-ChildItem -LiteralPath $programs -Filter '*.exe' -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'OmniYomi' -and $_.Name -notmatch 'Uninstall|Setup' } |
+            Select-Object -First 1
+          if (-not $installedExe) { throw 'NSIS completed, but the OmniYomi application executable was not installed.' }
+
+          $updateConfig = Join-Path (Split-Path -Parent $installedExe.FullName) (Join-Path 'resources' 'app-update.yml')
+          if (-not (Test-Path -LiteralPath $updateConfig)) { throw 'Packaged app-update.yml is missing; automatic updates are not configured in the installer.' }
+          $updateConfigText = Get-Content -LiteralPath $updateConfig -Raw
+          if ($updateConfigText -notmatch 'provider: github' -or $updateConfigText -notmatch 'owner: AlefLorenzo' -or $updateConfigText -notmatch 'repo: OmniYomi') {
+            throw 'Packaged app-update.yml does not point to the official OmniYomi GitHub Releases repository.'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $release 'latest.yml'))) {
+            throw 'The Windows update manifest latest.yml was not generated.'
+          }
+          Write-Host 'GitHub Releases feed and latest.yml update manifest validated.'
+
+          Write-Host "Running packaged desktop lifecycle smoke test: $($installedExe.FullName)"
+          $env:OMNIYOMI_SKIP_RUNTIME_SETUP = '1'
+          $env:OMNIYOMI_DISABLE_SUWAYOMI = '1'
+          try {
+            $packagedSmoke = Start-Process -FilePath $installedExe.FullName -ArgumentList @('--smoke-test') -WorkingDirectory (Split-Path -Parent $installedExe.FullName) -Wait -PassThru
+            if ($packagedSmoke.ExitCode -ne 0) {
+              throw "Packaged desktop smoke test failed with exit code $($packagedSmoke.ExitCode)."
+            }
+          } finally {
+            Remove-Item Env:OMNIYOMI_SKIP_RUNTIME_SETUP -ErrorAction SilentlyContinue
+            Remove-Item Env:OMNIYOMI_DISABLE_SUWAYOMI -ErrorAction SilentlyContinue
+          }
+
+          Remove-Item -LiteralPath $sentinel -Force
+          Write-Host "Silent installation validated: $($installedExe.FullName)"
+          Write-Host 'Packaged executable successfully started and stopped its managed backend.'
+          Write-Host 'Existing user data sentinel survived installation.'
+
+      - name: Upload Windows executables
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: OmniYomi-Desktop-Windows-x64
+          path: |
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tested Windows desktop update to GitHub Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $release = Resolve-Path 'release'
+          $installer = Get-ChildItem $release -Filter 'OmniYomi-Desktop-*-x64.exe' -File |
+            Where-Object { $_.Name -notmatch 'portable' } |
+            Select-Object -First 1
+          $manifest = Join-Path $release 'latest.yml'
+          if (-not $installer) { throw 'Validated NSIS installer was not found for publication.' }
+          if (-not (Test-Path -LiteralPath $manifest)) { throw 'latest.yml is missing; refusing to publish an unusable auto-update release.' }
+
+          $assets = @($installer.FullName, $manifest)
+          $assets += Get-ChildItem $release -Filter '*.blockmap' -File | ForEach-Object { $_.FullName }
+          gh release create $tag @assets --title "OmniYomi Desktop v$version" --notes "Versão estável do OmniYomi Desktop v$version. Atualização automática pelo launcher NSIS." --target $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed for $tag." }
+
+          # Verify the published release itself, not only the local build output.
+          $publishedAssets = @(gh release view $tag --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect published release $tag." }
+          if ($publishedAssets -notcontains 'latest.yml') {
+            throw "Published release $tag is missing latest.yml."
+          }
+          if ($publishedAssets -notcontains $installer.Name) {
+            throw "Published release $tag is missing installer $($installer.Name)."
+          }
+
+          $manifestUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/latest.yml"
+          $manifestContent = $null
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            try {
+              $response = Invoke-WebRequest -Uri $manifestUrl -Headers @{ 'Cache-Control' = 'no-cache' } -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                $manifestContent = [string]$response.Content
+                break
+              }
+            } catch {
+              if ($attempt -eq 6) { throw "Published latest.yml is not reachable (attempt $attempt): $($_.Exception.Message)" }
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $manifestContent) { throw "Published latest.yml could not be downloaded from $manifestUrl." }
+          if ($manifestContent -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
+            throw "Published latest.yml does not declare expected version $version."
+          }
+          if ($manifestContent -notmatch '(?m)^sha512:\s*\S+' -and $manifestContent -notmatch '(?m)^\s+sha512:\s*\S+') {
+            throw 'Published latest.yml does not contain a SHA-512 checksum.'
+          }
+
+          Write-Host "Stable desktop release $tag published and remotely verified."
+          Write-Host "Verified update manifest: $manifestUrl"

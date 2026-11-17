@@ -2,7 +2,7 @@
   "name": "omniyomi",
   "version": "1.1.5",
   "description": "Plataforma completa de leitura, gerenciamento e downloads de mangás e manhwas inspirada no Tachidesk e Tachiyomi",
-  "main": "server/src/index.ts",
+  "main": "desktop/main.cjs",
   "type": "module",
   "scripts": {
     "dev:server": "tsx watch server/src/index.ts",
@@ -16,7 +16,14 @@
     "serve:apk": "node scripts/serve-apk.js",
     "serve:apk:download": "node scripts/serve-apk.js --download",
     "start": "tsx server/src/index.ts",
-    "test": "tsx test/system.test.ts"
+    "test": "tsx test/system.test.ts",
+    "desktop:dev": "npm run build && electron .",
+    "desktop:smoke": "npm run build && electron . --smoke-test",
+    "desktop:dist": "npm run build && electron-builder --win nsis portable --x64 --publish never",
+    "setup": "node scripts/setup.mjs",
+    "extensions:sync": "node scripts/sync-extensions.mjs",
+    "extensions:install-all": "node scripts/install-extensions.mjs",
+    "install:windows": "powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -28,7 +35,8 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "protobufjs": "^8.8.1",
-    "ws": "^8.18.1"
+    "ws": "^8.18.1",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
@@ -40,6 +48,73 @@
     "@types/node": "^22.13.9",
     "@types/ws": "^8.5.14",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.17.0"
+  },
+  "build": {
+    "appId": "com.omniyomi.desktop",
+    "productName": "OmniYomi Desktop",
+    "artifactName": "OmniYomi-Desktop-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "client/dist/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/test/**",
+      "!**/*.md",
+      "scripts/runtime-manager.cjs"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "dist/**",
+      "client/dist/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "npmRebuild": true,
+    "nodeGypRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "OmniYomi-Desktop-${version}-portable-${arch}.${ext}"
+    },
+    "publish": [
+      "github"
+    ]
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlefLorenzo/OmniYomi.git"
   }
 }

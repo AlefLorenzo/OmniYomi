@@ -5,14 +5,14 @@ import AdmZip from 'adm-zip';
 import { fileURLToPath } from 'url';
 import { db } from '../db/database.js';
 import { extensionManager } from '../sources/ExtensionManager.js';
-import { decodeProtobufRepo } from './ProtobufRepoDecoder.js';
+import { decodeProtobufExtensionList, decodeProtobufRepoIndex } from './ProtobufRepoDecoder.js';
 import { suwayomiService } from './SuwayomiService.js';
 import { RepoExtension, RepoExtensionSource } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const EXTENSIONS_DIR = path.resolve(__dirname, '../../../data/extensions');
+const EXTENSIONS_DIR = path.resolve(process.env.OMNIYOMI_DATA_DIR || path.resolve(__dirname, '../../../data'), 'extensions');
 const CACHE_DIR = path.join(EXTENSIONS_DIR, 'cache');
 const EXTRACTED_DIR = path.join(EXTENSIONS_DIR, 'extracted');
 
@@ -26,93 +26,125 @@ export class RepoManager {
   public async fetchRepoExtensions(repoUrl: string): Promise<RepoExtension[]> {
     const cleanUrl = repoUrl.trim();
     const cached = this.cache.get(cleanUrl);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      return cached.extensions;
-    }
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) return cached.extensions;
 
     const extractedList = db.getExtractedExtensions();
-    const extractedPkgs = new Set(extractedList.map((e: any) => e.pkg));
-
-    // Try fetching with smart format fallback (.pb, index.json, index.min.json)
-    const candidateUrls = this.resolveCandidateUrls(cleanUrl);
+    const extractedPkgs = new Set(extractedList.map((entry: any) => entry.pkg));
+    const pendingUrls = this.resolveCandidateUrls(cleanUrl);
+    const visited = new Set<string>();
     let lastError: any = null;
 
-    for (const url of candidateUrls) {
+    while (pendingUrls.length > 0) {
+      const url = pendingUrls.shift()!;
+      if (!url || visited.has(url)) continue;
+      visited.add(url);
+
       try {
         let extensions: RepoExtension[] = [];
 
         if (url.endsWith('.pb')) {
-          // Protocol Buffer binary format
-          const res = await axios.get(url, {
+          const response = await axios.get(url, {
             responseType: 'arraybuffer',
-            timeout: 25000,
-            headers: { 'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0' },
+            timeout: 30000,
+            headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
           });
+          const decoded = decodeProtobufRepoIndex(Buffer.from(response.data), url);
+          extensions = decoded.extensions;
 
-          const buffer = Buffer.from(res.data);
-          extensions = decodeProtobufRepo(buffer, url);
+          if (extensions.length === 0 && decoded.extensionListUrl) {
+            const listResponse = await axios.get(decoded.extensionListUrl, {
+              responseType: 'arraybuffer',
+              timeout: 30000,
+              headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
+            });
+            const listBuffer = Buffer.from(listResponse.data);
+            const firstByte = listBuffer.toString('utf8').trimStart()[0];
+            if (firstByte === '{') {
+              const listJson = JSON.parse(listBuffer.toString('utf8'));
+              extensions = this.parseModernJson({
+                name: decoded.name,
+                signingKey: decoded.signingKey,
+                extensionList: listJson.extensionList || listJson,
+              }, url, extractedPkgs);
+            } else {
+              extensions = decodeProtobufExtensionList(listBuffer, url, decoded.name, decoded.signingKey);
+            }
+          }
         } else {
-          // JSON format (index.min.json or index.json)
-          const res = await axios.get(url, {
-            timeout: 25000,
+          const response = await axios.get(url, {
+            timeout: 30000,
             headers: {
-              'User-Agent': 'OmniYomi-Tachiyomi-Extension-Extractor/1.0',
+              'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1',
               'Accept': 'application/json',
             },
           });
-
-          const data = res.data;
-          const urlObj = new URL(url);
+          const data = response.data;
           const basePath = url.substring(0, url.lastIndexOf('/'));
 
-          // Check if index.min.json returned an "outdated / update to mihon" stub
-          if (Array.isArray(data) && data.length <= 2 && data.some(d => d.name?.includes('Mihon') || d.name?.includes('Outdated'))) {
-            // Try fetching index.json in the same folder instead
-            const indexJsonUrl = `${basePath}/index.json`;
-            try {
-              const fullRes = await axios.get(indexJsonUrl, { timeout: 25000 });
-              if (fullRes.data?.extensionList?.extensions?.length > 10) {
-                return this.parseModernJson(fullRes.data, indexJsonUrl, extractedPkgs);
-              }
-            } catch {
-              // continue
-            }
+          if (data && !Array.isArray(data) && typeof data === 'object' && typeof data.index_v2 === 'string') {
+            const indexV2 = new URL(data.index_v2, url).toString();
+            if (!visited.has(indexV2)) pendingUrls.unshift(indexV2);
+            continue;
           }
 
-          if (Array.isArray(data)) {
-            extensions = this.parseLegacyJson(data, url, basePath, urlObj.hostname, extractedPkgs);
+          if (data && !Array.isArray(data) && typeof data === 'object' &&
+              !(data.extensionList?.extensions?.length) && typeof data.extensionListUrl === 'string') {
+            const listUrl = new URL(data.extensionListUrl, url).toString();
+            const listResponse = await axios.get(listUrl, {
+              responseType: 'arraybuffer',
+              timeout: 30000,
+              headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
+            });
+            extensions = decodeProtobufExtensionList(Buffer.from(listResponse.data), url, data.name, data.signingKey);
+          } else if (Array.isArray(data)) {
+            const outdatedStub = data.length <= 2 && data.some((item: any) =>
+              /mihon|outdated|update to/i.test(String(item?.name || ''))
+            );
+            if (outdatedStub && url.endsWith('/index.min.json')) {
+              const repoJsonUrl = new URL('repo.json', url).toString();
+              if (!visited.has(repoJsonUrl)) pendingUrls.unshift(repoJsonUrl);
+              continue;
+            }
+            extensions = this.parseLegacyJson(data, url, basePath, new URL(url).hostname, extractedPkgs);
           } else if (data && typeof data === 'object') {
             extensions = this.parseModernJson(data, url, extractedPkgs);
           }
         }
 
         if (extensions.length > 0) {
-          // Cross-reference extracted state
-          for (const ext of extensions) {
-            ext.isExtracted = extractedPkgs.has(ext.pkg);
-            ext.isInstalled = extractedPkgs.has(ext.pkg);
+          for (const extension of extensions) {
+            extension.isExtracted = extractedPkgs.has(extension.pkg);
+            extension.isInstalled = extractedPkgs.has(extension.pkg);
+            extension.repoUrl = cleanUrl;
           }
-
           this.cache.set(cleanUrl, { extensions, timestamp: Date.now() });
           db.updateRepoSynced(cleanUrl);
           return extensions;
         }
-      } catch (err: any) {
-        lastError = err;
+      } catch (error: any) {
+        lastError = error;
       }
     }
 
-    throw new Error(`Falha ao extrair extensões de ${cleanUrl}: ${lastError?.message || 'Nenhuma extensão encontrada'}`);
+    throw new Error('Falha ao extrair extensões de ' + cleanUrl + ': ' +
+      (lastError?.message || 'Nenhuma extensão encontrada nos formatos aceitos'));
   }
 
   private resolveCandidateUrls(url: string): string[] {
     const urls = [url];
     if (url.endsWith('/')) {
-      urls.push(`${url}index.json`, `${url}index.min.json`, `${url}index.pb`);
+      urls.push(url + 'index.pb', url + 'index.json', url + 'index.min.json');
     } else if (url.endsWith('index.min.json')) {
-      urls.push(url.replace('index.min.json', 'index.json'), url.replace('index.min.json', 'index.pb'));
+      urls.push(url.replace('index.min.json', 'repo.json'));
+      urls.push(url.replace('index.min.json', 'index.json'));
+      urls.push(url.replace('index.min.json', 'index.pb'));
     } else if (url.endsWith('index.pb')) {
-      urls.push(url.replace('index.pb', 'index.json'), url.replace('index.pb', 'index.min.json'));
+      urls.push(url.replace('index.pb', 'index.json'));
+      urls.push(url.replace('index.pb', 'index.min.json'));
+    } else if (url.endsWith('index.json')) {
+      urls.push(url.replace('index.json', 'repo.json'));
+      urls.push(url.replace('index.json', 'index.pb'));
+      urls.push(url.replace('index.json', 'index.min.json'));
     }
     return urls;
   }
@@ -147,7 +179,9 @@ export class RepoManager {
         id: pkg,
         pkg,
         name: item.name,
-        version: item.version || item.versionName || '1.0.0',
+        version: item.versionName || item.version || '1.0.0',
+        extensionLib: String(item.extensionLib || '1.4'),
+        versionCode: Number.parseInt(String(item.versionCode || item.code || '0'), 10) || 0,
         lang: item.lang || item.language || 'all',
         iconUrl,
         apkUrl,
@@ -198,6 +232,8 @@ export class RepoManager {
         pkg,
         name: item.name,
         version: item.versionName || item.version || '1.0.0',
+        extensionLib: String(item.extensionLib || '1.4'),
+        versionCode: Number.parseInt(String(item.versionCode || item.code || '0'), 10) || 0,
         lang: sources[0]?.lang || 'all',
         iconUrl,
         apkUrl,
@@ -205,6 +241,7 @@ export class RepoManager {
         repoUrl: url,
         repoName,
         sources,
+        signingKey: typeof data.signingKey === 'string' ? data.signingKey : undefined,
         isInstalled: extractedPkgs.has(pkg),
         isExtracted: extractedPkgs.has(pkg),
       });
@@ -213,34 +250,99 @@ export class RepoManager {
     return extensions;
   }
 
-  public async getAllExtensions(query?: string, lang?: string): Promise<RepoExtension[]> {
-    const repos = db.getExtensionRepos().filter((r: any) => r.enabled);
-    const allExtensions: RepoExtension[] = [];
+  private getInstalledStatus(pkg: string): { valid: boolean; version?: string; versionCode?: number; extractedPath?: string } | null {
+    const record = db.getExtractedExtensions().find((entry: any) => entry.pkg === pkg);
+    if (!record) return null;
 
-    for (const repo of repos) {
-      try {
-        const list = await this.fetchRepoExtensions(repo.url);
-        allExtensions.push(...list);
-      } catch (e: any) {
-        console.warn(`Repositório ${repo.name} ignorado na sincronização:`, e.message);
+    const extractedPath = path.join(EXTRACTED_DIR, pkg);
+    const manifestPath = path.join(extractedPath, 'manifest.json');
+    const apkPath = path.join(CACHE_DIR, `${pkg}.apk`);
+    let manifest: any = null;
+    try {
+      if (fs.existsSync(manifestPath)) manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch { manifest = null; }
+
+    const dexValid = fs.existsSync(extractedPath) && fs.readdirSync(extractedPath).some((name) =>
+      /^classes(?:\d+)?\.dex$/i.test(name) &&
+      fs.statSync(path.join(extractedPath, name)).isFile() &&
+      fs.statSync(path.join(extractedPath, name)).size > 0
+    );
+    let apkValid = false;
+    try {
+      if (fs.existsSync(apkPath) && fs.statSync(apkPath).size > 1024) {
+        const zip = new AdmZip(apkPath);
+        apkValid = zip.getEntries().some((entry) => /^classes(?:\d+)?\.dex$/i.test(entry.entryName));
       }
+    } catch { apkValid = false; }
+
+    return {
+      valid: Boolean(manifest?.pkg === pkg && dexValid && apkValid),
+      version: manifest?.version || record.version,
+      versionCode: Number.parseInt(String(manifest?.versionCode || '0'), 10) || 0,
+      extractedPath,
+    };
+  }
+
+  public async getAllExtensions(query?: string, lang?: string, repoFilter?: string): Promise<RepoExtension[]> {
+    const repos = db.getExtensionRepos().filter((r: any) =>
+      r.enabled && (!repoFilter || repoFilter === 'all' || r.url === repoFilter)
+    );
+    if (repos.length === 0) {
+      throw new Error(repoFilter && repoFilter !== 'all'
+        ? 'O repositório selecionado não está habilitado ou não existe.'
+        : 'Nenhum repositório de extensões está habilitado. Adicione ou ative um repositório na aba Repositórios.');
     }
 
-    // Deduplicate by package name
+    const fetched = await Promise.allSettled(repos.map(async (repo: any) => ({
+      repo,
+      extensions: await this.fetchRepoExtensions(repo.url),
+    })));
+    const allExtensions: RepoExtension[] = [];
+    const failures: string[] = [];
+    for (let index = 0; index < fetched.length; index++) {
+      const result = fetched[index];
+      if (result.status === 'fulfilled') {
+        allExtensions.push(...result.value.extensions);
+      } else {
+        const reason = result.reason?.message || String(result.reason);
+        failures.push(repos[index].name + ': ' + reason);
+        console.warn('[RepoManager] Um repositório não pôde ser sincronizado:', reason);
+      }
+    }
+    if (allExtensions.length === 0 && failures.length > 0) {
+      throw new Error('Não foi possível carregar nenhum catálogo de extensões. ' + failures.join(' | '));
+    }
+
+    // Android package names are unique at install time. Keep one store candidate per package
+    // and prefer the greatest published versionCode to avoid duplicate React keys and signature conflicts.
     const uniqueMap = new Map<string, RepoExtension>();
     for (const ext of allExtensions) {
-      if (!uniqueMap.has(ext.pkg)) {
+      const previous = uniqueMap.get(ext.pkg);
+      if (!previous || (ext.versionCode || 0) > (previous.versionCode || 0)) {
         uniqueMap.set(ext.pkg, ext);
       }
     }
 
     let filtered = Array.from(uniqueMap.values());
+    for (const ext of filtered) {
+      const installed = this.getInstalledStatus(ext.pkg);
+      ext.isInstalled = Boolean(installed?.valid);
+      ext.isExtracted = Boolean(installed?.valid);
+      ext.installedVersion = installed?.version;
+      ext.updateAvailable = Boolean(installed?.valid && (ext.versionCode || 0) > (installed.versionCode || 0));
+      const lib = String(ext.extensionLib || '1.4').trim();
+      ext.isCompatible = ['1.4', '1.5', '1.6'].includes(lib);
+      ext.compatibilityReason = ext.isCompatible
+        ? ''
+        : `A extensão usa a API ${lib || 'desconhecida'}; este runtime valida as APIs 1.4–1.6.`;
+    }
 
     if (lang && lang !== 'all') {
       const l = lang.toLowerCase();
       filtered = filtered.filter(e =>
         e.lang.toLowerCase() === l ||
-        e.sources.some(s => s.lang.toLowerCase() === l)
+        e.lang.toLowerCase() === 'all' ||
+        e.sources.some(s => s.lang.toLowerCase().startsWith(l))
       );
     }
 
@@ -249,138 +351,229 @@ export class RepoManager {
       filtered = filtered.filter(e =>
         e.name.toLowerCase().includes(q) ||
         e.pkg.toLowerCase().includes(q) ||
+        e.repoName.toLowerCase().includes(q) ||
         e.sources.some(s => s.name.toLowerCase().includes(q))
       );
     }
 
-    return filtered;
+    return filtered.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // Downloads APK, extracts dex, icons, manifest and saves extracted extension
   public async extractApkExtension(pkg: string, apkUrl: string, repoUrl: string): Promise<any> {
-    if (!apkUrl) {
-      throw new Error('URL do arquivo APK não fornecida.');
+    if (!/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/.test(pkg)) {
+      throw new Error('Identificador de pacote inválido.');
+    }
+    if (!apkUrl) throw new Error('URL do arquivo APK não fornecida.');
+
+    const metadata = (await this.getAllExtensions()).find((extension) =>
+      extension.pkg === pkg && (!repoUrl || extension.repoUrl === repoUrl)
+    );
+    if (!metadata) throw new Error('Extensão não encontrada nos repositórios habilitados. Atualize o catálogo.');
+    if (metadata.isCompatible === false) {
+      throw new Error(metadata.compatibilityReason || 'Esta extensão não é compatível com o runtime atual.');
+    }
+
+    const installed = this.getInstalledStatus(pkg);
+    if (installed?.valid && !metadata.updateAvailable) {
+      return {
+        pkg,
+        name: metadata.name,
+        version: installed.version,
+        skipped: true,
+        reason: 'A extensão já está instalada e os arquivos locais passaram na validação.',
+      };
     }
 
     const apkPath = path.join(CACHE_DIR, `${pkg}.apk`);
     const targetExtractDir = path.join(EXTRACTED_DIR, pkg);
+    const stagingDir = path.join(EXTRACTED_DIR, `.${pkg}.staging-${process.pid}-${Date.now()}`);
+    const tempApkPath = `${apkPath}.part-${process.pid}-${Date.now()}`;
 
-    // 1. Download APK
-    console.log(`[Extrator] Baixando APK da extensão: ${pkg} de ${apkUrl}...`);
-    const res = await axios({
-      method: 'GET',
-      url: apkUrl,
-      responseType: 'arraybuffer',
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Android; Mobile) OmniYomi/1.0',
-      },
-    });
+    try {
+      console.log(`[Extensões] Baixando ${metadata.name} (${metadata.version})...`);
+      const res = await axios({
+        method: 'GET',
+        url: metadata.apkUrl || apkUrl,
+        responseType: 'arraybuffer',
+        timeout: 120000,
+        maxContentLength: 150 * 1024 * 1024,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 OmniYomi-Desktop/1.1',
+          'Accept': 'application/vnd.android.package-archive, application/octet-stream',
+        },
+      });
 
-    fs.writeFileSync(apkPath, Buffer.from(res.data));
-
-    // 2. Unpack APK with AdmZip
-    console.log(`[Extrator] Descompactando APK: ${pkg}...`);
-    const zip = new AdmZip(apkPath);
-    if (!fs.existsSync(targetExtractDir)) {
-      fs.mkdirSync(targetExtractDir, { recursive: true });
-    }
-
-    // Extract classes.dex and AndroidManifest.xml
-    const entries = zip.getEntries();
-    let hasDex = false;
-    let iconPath: string | null = null;
-
-    for (const entry of entries) {
-      if (entry.entryName === 'classes.dex') {
-        zip.extractEntryTo(entry, targetExtractDir, false, true);
-        hasDex = true;
-      } else if (entry.entryName === 'AndroidManifest.xml') {
-        zip.extractEntryTo(entry, targetExtractDir, false, true);
-      } else if (entry.entryName.startsWith('res/') && entry.entryName.endsWith('.png') && !iconPath) {
-        // Extract icon
-        zip.extractEntryTo(entry, targetExtractDir, false, true);
-        iconPath = path.join(targetExtractDir, path.basename(entry.entryName));
+      const apkBuffer = Buffer.from(res.data);
+      if (apkBuffer.length < 1024) throw new Error('O download retornou um arquivo muito pequeno para ser um APK válido.');
+      const zip = new AdmZip(apkBuffer);
+      // Multi-dex APKs may contain classes4.dex or later; retain every root DEX file.
+      const dexEntries = zip.getEntries().filter((entry) =>
+        /^classes(?:\d+)?\.dex$/i.test(entry.entryName)
+      );
+      const manifestEntry = zip.getEntry('AndroidManifest.xml');
+      if (dexEntries.length === 0 || !manifestEntry) {
+        throw new Error('O arquivo baixado não contém um AndroidManifest.xml e classes.dex válidos.');
       }
-    }
 
-    // 3. Find extension metadata from cached repos
-    const allRepoExts = await this.getAllExtensions();
-    const meta = allRepoExts.find(e => e.pkg === pkg);
+      fs.mkdirSync(stagingDir, { recursive: true });
+      for (const entry of dexEntries) {
+        zip.extractEntryTo(entry, stagingDir, false, true);
+      }
+      zip.extractEntryTo(manifestEntry, stagingDir, false, true);
 
-    const name = meta?.name || pkg.split('.').pop() || pkg;
-    const version = meta?.version || '1.0.0';
-    const lang = meta?.lang || 'all';
-    const sources = meta?.sources || [];
+      const name = metadata.name || pkg.split('.').pop() || pkg;
+      const version = metadata.version || '1.0.0';
+      const lang = metadata.lang || 'all';
+      const sources = metadata.sources || [];
+      const extensionManifest = {
+        pkg,
+        name,
+        version,
+        versionCode: metadata.versionCode || 0,
+        extensionLib: metadata.extensionLib || '1.4',
+        signingKey: metadata.signingKey || null,
+        lang,
+        hasDex: true,
+        apkUrl: metadata.apkUrl || apkUrl,
+        repoUrl: metadata.repoUrl || repoUrl,
+        sources,
+        extractedAt: Date.now(),
+      };
+      fs.writeFileSync(path.join(stagingDir, 'manifest.json'), JSON.stringify(extensionManifest, null, 2), 'utf8');
+      fs.writeFileSync(tempApkPath, apkBuffer);
 
-    // Save manifest.json in extracted folder
-    const extensionManifest = {
-      pkg,
-      name,
-      version,
-      lang,
-      hasDex,
-      apkUrl,
-      repoUrl,
-      sources,
-      extractedAt: Date.now(),
-    };
+      const runtimeReady = await suwayomiService.ensureRunning();
+      if (!runtimeReady) {
+        throw new Error('Runtime Suwayomi não está instalado ou não iniciou. Execute o comando de preparação do OmniYomi e tente novamente.');
+      }
+      await suwayomiService.syncExtensionStores(
+        db.getExtensionRepos().filter((entry: any) => entry.enabled).map((entry: any) => entry.url)
+      );
 
-    fs.writeFileSync(
-      path.join(targetExtractDir, 'manifest.json'),
-      JSON.stringify(extensionManifest, null, 2),
-      'utf-8'
-    );
+      await suwayomiService.queryGql(`
+        mutation UpdateExtension($id: String!, $install: Boolean!, $update: Boolean!) {
+          updateExtension(input: {
+            id: $id,
+            patch: {
+              install: $install,
+              update: $update
+            }
+          }) {
+            clientMutationId
+          }
+        }
+      `, {
+        id: pkg,
+        install: !metadata.updateAvailable,
+        update: Boolean(metadata.updateAvailable),
+      });
 
-    // 4. Save to database
-    db.saveExtractedExtension({
-      pkg,
-      name,
-      version,
-      lang,
-      apkUrl,
-      iconUrl: meta?.iconUrl,
-      extractedPath: targetExtractDir,
-      sources,
-    });
-
-    // 5. Instalar no motor Suwayomi DEX para execução real das classes Kotlin
-    if (await suwayomiService.ensureRunning()) {
-      try {
-        console.log(`[Extrator] Instalando no runtime Suwayomi DEX: ${pkg}...`);
-        await suwayomiService.queryGql(`
-          mutation {
-            updateExtension(input: {
-              id: "${pkg}",
-              patch: { install: true }
-            }) {
-              clientMutationId
+      const installedData = await suwayomiService.queryGql(`
+        query {
+          extensions {
+            nodes {
+              pkgName
+              isInstalled
+              versionName
             }
           }
-        `);
-      } catch (err: any) {
-        console.warn(`[Extrator] Aviso ao sincronizar com Suwayomi:`, err.message);
+        }
+      `);
+      const serverExtension = (installedData?.extensions?.nodes || [])
+        .find((entry: any) => entry.pkgName === pkg && entry.isInstalled);
+      if (!serverExtension) {
+        throw new Error('O runtime não confirmou a instalação da extensão. Ela não será marcada como instalada no OmniYomi.');
+      }
+
+      const backupDir = `${targetExtractDir}.backup-${Date.now()}`;
+      const backupApk = `${apkPath}.backup-${Date.now()}`;
+      let movedOldDir = false;
+      let movedOldApk = false;
+      try {
+        if (fs.existsSync(targetExtractDir)) {
+          fs.renameSync(targetExtractDir, backupDir);
+          movedOldDir = true;
+        }
+        if (fs.existsSync(apkPath)) {
+          fs.renameSync(apkPath, backupApk);
+          movedOldApk = true;
+        }
+        fs.renameSync(stagingDir, targetExtractDir);
+        fs.renameSync(tempApkPath, apkPath);
+      } catch (error) {
+        if (fs.existsSync(targetExtractDir)) fs.rmSync(targetExtractDir, { recursive: true, force: true });
+        if (fs.existsSync(apkPath)) fs.rmSync(apkPath, { force: true });
+        if (movedOldDir && fs.existsSync(backupDir)) fs.renameSync(backupDir, targetExtractDir);
+        if (movedOldApk && fs.existsSync(backupApk)) fs.renameSync(backupApk, apkPath);
+        throw error;
+      }
+
+      if (movedOldDir && fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true, force: true });
+      if (movedOldApk && fs.existsSync(backupApk)) fs.rmSync(backupApk, { force: true });
+
+      db.saveExtractedExtension({
+        pkg,
+        name,
+        version,
+        lang,
+        apkUrl: metadata.apkUrl || apkUrl,
+        iconUrl: metadata.iconUrl,
+        extractedPath: targetExtractDir,
+        sources,
+      });
+      extensionManager.registerApkExtensionSources({ pkg, name, version, lang, iconUrl: metadata.iconUrl, sources });
+      this.cache.clear();
+
+      console.log(`[Extensões] ${name} instalada e validada (${sources.length} fontes).`);
+      return { ...extensionManifest, skipped: false, runtimeVersion: serverExtension.versionName };
+    } catch (error) {
+      if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true });
+      if (fs.existsSync(tempApkPath)) fs.rmSync(tempApkPath, { force: true });
+      throw error;
+    }
+  }
+
+  public async uninstallExtractedExtension(pkg: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/.test(pkg)) {
+      throw new Error('Identificador de pacote inválido.');
+    }
+
+    // Remove the extension from the runtime first. If this fails, keep the local
+    // APK and extracted files so the UI never reports a half-uninstalled source.
+    const runtimeReady = await suwayomiService.ensureRunning();
+    if (!runtimeReady) {
+      throw new Error('Não foi possível iniciar o runtime Suwayomi. A extensão foi mantida e não foi desinstalada.');
+    }
+    {
+      await suwayomiService.queryGql(`
+        mutation UninstallExtension($id: String!) {
+          updateExtension(input: {
+            id: $id,
+            patch: { uninstall: true }
+          }) {
+            clientMutationId
+          }
+        }
+      `, { id: pkg });
+
+      const state = await suwayomiService.queryGql(`
+        query {
+          extensions {
+            nodes {
+              pkgName
+              isInstalled
+            }
+          }
+        }
+      `);
+      const stillInstalled = (state?.extensions?.nodes || [])
+        .some((entry: any) => entry.pkgName === pkg && entry.isInstalled);
+      if (stillInstalled) {
+        throw new Error('O runtime Suwayomi ainda informa que a extensão está instalada. Os arquivos locais foram preservados.');
       }
     }
 
-    // 6. Register live sources into ExtensionManager so they are immediately browsable
-    extensionManager.registerApkExtensionSources({
-      pkg,
-      name,
-      version,
-      lang,
-      iconUrl: meta?.iconUrl,
-      sources,
-    });
-
-    // Invalidate memory cache so UI sees it as installed
-    this.cache.delete(repoUrl);
-
-    console.log(`[Extrator] Extensão extraída e instalada com sucesso: ${name} (${sources.length} fontes)`);
-    return extensionManifest;
-  }
-
-  public uninstallExtractedExtension(pkg: string): boolean {
     const targetDir = path.join(EXTRACTED_DIR, pkg);
     if (fs.existsSync(targetDir)) {
       fs.rmSync(targetDir, { recursive: true, force: true });
@@ -391,27 +584,8 @@ export class RepoManager {
       fs.unlinkSync(apkPath);
     }
 
-    // Desinstalar no Suwayomi também
-    suwayomiService.isHealthy().then(healthy => {
-      if (healthy) {
-        suwayomiService.queryGql(`
-          mutation {
-            updateExtension(input: {
-              id: "${pkg}",
-              patch: { uninstall: true }
-            }) {
-              clientMutationId
-            }
-          }
-        `).catch(() => {});
-      }
-    });
-
-    // Remove from DB and ExtensionManager
     db.deleteExtractedExtension(pkg);
     extensionManager.removeApkExtensionSources(pkg);
-
-    // Invalidate caches
     this.cache.clear();
     return true;
   }

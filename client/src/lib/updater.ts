@@ -14,67 +14,87 @@ export interface ReleaseInfo {
   hasUpdate: boolean;
 }
 
-// Compara duas versões em formato semver (ex: "1.0.9" vs "1.0.8")
-export function isNewerVersion(latest: string, current: string): boolean {
-  const parse = (v: string) => v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-  const [lMaj = 0, lMin = 0, lPat = 0] = parse(latest);
-  const [cMaj = 0, cMin = 0, cPat = 0] = parse(current);
-
-  if (lMaj > cMaj) return true;
-  if (lMaj < cMaj) return false;
-  if (lMin > cMin) return true;
-  if (lMin < cMin) return false;
-  return lPat > cPat;
+function versionParts(value: string): number[] {
+  return value.replace(/^android-v/i, '').replace(/^v/i, '').split('.').map(part => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
 }
 
+function releaseVersion(tagName: unknown): string | null {
+  if (typeof tagName !== 'string') return null;
+  const match = tagName.match(/^(?:android-)?v?(\d+\.\d+\.\d+)$/i);
+  return match?.[1] || null;
+}
+
+function hasApkAsset(release: any): boolean {
+  return Array.isArray(release?.assets) && release.assets.some((asset: any) =>
+    typeof asset?.name === 'string' &&
+    /-release\.apk$/i.test(asset.name) &&
+    typeof asset.browser_download_url === 'string'
+  );
+}
+
+export function isNewerVersion(latest: string, current: string): boolean {
+  const left = versionParts(latest);
+  const right = versionParts(current);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const a = left[index] || 0;
+    const b = right[index] || 0;
+    if (a !== b) return a > b;
+  }
+  return false;
+}
+
+/**
+ * Accept Android/legacy tags only when they contain a signed release APK.
+ * Debug APKs are not update candidates because CI debug signing keys are ephemeral.
+ */
 export async function checkForUpdate(): Promise<ReleaseInfo | null> {
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+    const response = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=100`,
       {
-        headers: { Accept: 'application/vnd.github.v3+json' },
-        signal: AbortSignal.timeout(8000),
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(10000),
       }
     );
-    if (!res.ok) {
-      // Se não houver releases no GitHub ainda, busca as tags
-      const tagsRes = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/tags`,
-        {
-          headers: { Accept: 'application/vnd.github.v3+json' },
-          signal: AbortSignal.timeout(6000),
-        }
+    if (!response.ok) return null;
+
+    const releases = await response.json();
+    if (!Array.isArray(releases)) return null;
+
+    const androidReleases = releases
+      .map((release: any) => ({ release, version: releaseVersion(release?.tag_name) }))
+      .filter(({ release, version }: any) =>
+        Boolean(version) && !release.draft && hasApkAsset(release)
+      )
+      .sort((a: any, b: any) =>
+        isNewerVersion(b.version, a.version) ? 1 :
+        isNewerVersion(a.version, b.version) ? -1 : 0
       );
-      if (tagsRes.ok) {
-        const tags = await tagsRes.json();
-        if (Array.isArray(tags) && tags.length > 0) {
-          const latestTag = (tags[0].name || '').replace(/^v/, '');
-          const hasUpdate = isNewerVersion(latestTag, CURRENT_VERSION);
-          return {
-            version: latestTag,
-            downloadUrl: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`,
-            releaseNotes: `Nova tag v${latestTag} detectada no GitHub!`,
-            publishedAt: new Date().toISOString(),
-            hasUpdate,
-          };
-        }
-      }
-      return null;
-    }
 
-    const data = await res.json();
-    const latestVersion = (data.tag_name || '').replace(/^v/, '');
-    if (!latestVersion) return null;
+    const latestEntry = androidReleases[0];
+    if (!latestEntry) return null;
+    const latest = latestEntry.release;
 
-    const hasUpdate = isNewerVersion(latestVersion, CURRENT_VERSION);
-    const apkAsset = (data.assets || []).find((a: any) => a.name.endsWith('.apk'));
+    const apkAssets = latest.assets.filter((asset: any) =>
+      typeof asset.name === 'string' &&
+      /-release\.apk$/i.test(asset.name) &&
+      typeof asset.browser_download_url === 'string'
+    );
+    const apk = apkAssets[0];
+    if (!apk) return null;
+
+    const version = latestEntry.version;
+    if (typeof version !== 'string') return null;
 
     return {
-      version: latestVersion,
-      downloadUrl: apkAsset?.browser_download_url || data.html_url,
-      releaseNotes: data.body || '',
-      publishedAt: data.published_at || '',
-      hasUpdate,
+      version,
+      downloadUrl: apk.browser_download_url,
+      releaseNotes: latest.body || '',
+      publishedAt: latest.published_at || '',
+      hasUpdate: isNewerVersion(version, CURRENT_VERSION),
     };
   } catch {
     return null;

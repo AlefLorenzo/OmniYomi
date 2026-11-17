@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmniYomi Desktop</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">O</div>
+        <div><strong>OmniYomi</strong><span>DESKTOP LAUNCHER</span></div>
+      </div>
+      <div class="version">Windows · Local</div>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow"><span class="pulse" id="status-dot"></span><span id="status-label">PRONTO PARA INICIAR</span></div>
+      <h1 id="status-title">Seu leitor,<br><em>no seu computador.</em></h1>
+      <p id="status-message">Inicie o servidor local para abrir sua biblioteca, extensões e downloads.</p>
+      <div class="actions">
+        <button id="start-button" class="primary"><span class="play-icon">▶</span> Iniciar OmniYomi</button>
+        <button id="open-button" class="secondary" disabled>Abrir aplicativo</button>
+        <button id="stop-button" class="text-button" disabled>Parar servidor</button>
+      </div>
+      <div class="progress-wrap" id="progress-wrap" hidden><div class="progress"><span id="progress-bar"></span></div><small id="progress-text">Preparando ambiente...</small></div>
+    </section>
+
+    <section class="update-panel panel" id="update-panel" aria-live="polite">
+      <div class="panel-head"><div><span class="eyebrow">ATUALIZAÇÕES</span><h2 id="update-title">Verificando atualizações</h2></div><span class="state-pill" id="update-version">v—</span></div>
+      <p id="update-message">O OmniYomi verifica automaticamente se existe uma nova versão.</p>
+      <div class="update-actions"><button id="check-updates-button" class="link-button">Verificar agora</button><button id="install-update-button" class="primary" hidden>Instalar e reiniciar</button></div>
+      <div class="progress-wrap" id="update-progress-wrap" hidden><div class="progress"><span id="update-progress-bar"></span></div><small id="update-progress-text">Baixando atualização...</small></div>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <div class="panel-head"><div><span class="eyebrow">SERVIÇOS</span><h2>Estado local</h2></div><span class="state-pill" id="state-pill">Desligado</span></div>
+        <div class="service-row"><span><i class="service-icon">⌁</i> Backend Node.js</span><b id="backend-state">Desligado</b></div>
+        <div class="service-row"><span><i class="service-icon">▤</i> Banco SQLite</span><b class="ok">Persistente</b></div>
+        <div class="service-row"><span><i class="service-icon">⇩</i> Downloads</span><b class="ok">Retomáveis</b></div>
+        <div class="service-row"><span><i class="service-icon">◈</i> Runtime de extensões</span><b id="runtime-state">Opcional</b></div>
+      </article>
+      <article class="panel data-panel">
+        <div class="panel-head"><div><span class="eyebrow">DADOS LOCAIS</span><h2>Seu progresso</h2></div><span class="shield">● Protegido</span></div>
+        <p>A biblioteca, o histórico de leitura, as configurações e os capítulos baixados ficam fora do executável.</p>
+        <button id="data-button" class="link-button">Abrir pasta de dados ↗</button>
+        <div class="path" id="data-path">Preparando caminho...</div>
+      </article>
+    </section>
+
+    <section class="logs-panel">
+      <div class="panel-head"><div><span class="eyebrow">DIAGNÓSTICO</span><h2>Atividade recente</h2></div><button id="logs-button" class="link-button">Abrir logs ↗</button></div>
+      <div id="logs" class="logs"><div class="log-empty">Os registros de inicialização aparecerão aqui.</div></div>
+    </section>
+
+    <footer><span>OmniYomi Desktop</span><span>Os dados permanecem salvos ao sair.</span><button id="quit-button">Sair</button></footer>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

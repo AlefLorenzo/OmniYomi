@@ -1,34 +1,54 @@
-name: CI - Build & Test
+name: CI - Build & TypeScript Validation
 
 on:
   push:
     branches: [ master, main ]
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [ master, main ]
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: omniyomi-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
-    name: Build & TypeScript Validation
+    name: Build & TypeScript validation
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
-      - name: Instalar dependências raiz
+      - name: Install root dependencies
         run: npm install
 
-      - name: Instalar dependências client
-        run: cd client && npm install
+      - name: Install client dependencies
+        run: npm --prefix client install
 
-      - name: Verificar compilação TypeScript (Server)
+      - name: Validate server TypeScript
         run: npx tsc --noEmit
 
-      - name: Compilar Cliente Vite SPA
-        run: cd client && npm run build
+      - name: Build client SPA
+        run: npm --prefix client run build

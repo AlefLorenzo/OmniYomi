@@ -13,6 +13,13 @@ export function getApiBaseUrl(): string {
     if (window.location.port === '8888' || window.location.port === '4567') {
       return window.location.origin;
     }
+
+    // Desktop launcher may select another loopback port when 4567 is occupied.
+    const hostname = window.location.hostname.toLowerCase();
+    const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+    if (isLoopback && window.location.port && window.location.port !== '3000') {
+      return window.location.origin;
+    }
   }
 
   // No Capacitor/Android: modo offline por padrão. Sem IP hardcoded.
@@ -770,6 +777,7 @@ export const api = {
     const params = new URLSearchParams();
     if (q) params.append('q', q);
     if (lang && lang !== 'all') params.append('lang', lang);
+    if (repoFilter && repoFilter !== 'all') params.append('repo', repoFilter);
     const qs = params.toString();
     try {
       return await request<{ total: number; extensions: any[] }>(`/extensions/store${qs ? `?${qs}` : ''}`);
