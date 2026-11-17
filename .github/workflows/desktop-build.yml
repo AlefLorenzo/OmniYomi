@@ -2,14 +2,14 @@ name: Windows Desktop Build
 
 on:
   push:
-    branches: [ master, feature/windows-desktop-launcher ]
+    branches: [ master ]
   pull_request:
     branches: [ master ]
   workflow_dispatch:
 
 concurrency:
   group: omniyomi-desktop-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
