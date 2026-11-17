@@ -137,9 +137,13 @@ function shutdownServer(): Promise<void> {
 }
 
 function finishShutdown(): void {
-  void shutdownServer().then(() => process.exit(0)).catch((error) => {
+  void shutdownServer().then(() => {
+    // Flush the completion marker and earlier console output before process.exit().
+    // Child stdout is a pipe on Windows and pending writes can otherwise be truncated.
+    process.stdout.write('', () => process.exit(0));
+  }).catch((error) => {
     console.error('[OmniYomi] Falha no encerramento:', error);
-    process.exit(1);
+    process.stderr.write('', () => process.exit(1));
   });
 }
 
