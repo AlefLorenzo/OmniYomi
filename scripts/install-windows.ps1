@@ -80,7 +80,6 @@ try {
     }
     if ((Test-Path (Join-Path $sourceRoot "client\node_modules")) -and
         (Test-Path (Join-Path $extracted.FullName "client"))) {
-      New-Item -ItemType Directory -Path (Join-Path $extracted.FullName "client\node_modules") -Force | Out-Null
       Move-Item (Join-Path $sourceRoot "client\node_modules") (Join-Path $extracted.FullName "client\node_modules") -Force
     }
     Move-Item $sourceRoot $backupRoot
