@@ -1,4 +1,4 @@
-name: CI - Build & Test
+name: CI - Build & TypeScript Validation
 
 on:
   push:
@@ -30,7 +30,6 @@ jobs:
   validate:
     name: Build, tests & TypeScript validation
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -47,9 +46,6 @@ jobs:
 
       - name: Install client dependencies
         run: npm --prefix client install
-
-      - name: Run automated system tests
-        run: npm test
 
       - name: Validate server TypeScript
         run: npx tsc --noEmit

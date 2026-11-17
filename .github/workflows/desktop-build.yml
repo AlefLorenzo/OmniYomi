@@ -44,6 +44,8 @@ jobs:
   windows-desktop:
     name: Build and smoke-test Windows desktop app
     runs-on: windows-latest
+    env:
+      OMNIYOMI_APP_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && format('1.1.{0}', github.run_number) || '1.1.5' }}
     timeout-minutes: 60
     steps:
       - name: Checkout

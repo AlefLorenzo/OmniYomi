@@ -70,7 +70,7 @@ jobs:
       - name: Build do cliente React SPA
         run: npm --prefix client run build
         env:
-          npm_package_version: ${{ steps.get_version.outputs.VERSION }}
+          OMNIYOMI_APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
 
       - name: Configurar permissões e pastas do Android
         run: |
