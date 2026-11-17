@@ -535,6 +535,9 @@ export class RepoManager {
   }
 
   public uninstallExtractedExtension(pkg: string): boolean {
+    if (!/^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$/.test(pkg)) {
+      throw new Error('Identificador de pacote inválido.');
+    }
     const targetDir = path.join(EXTRACTED_DIR, pkg);
     if (fs.existsSync(targetDir)) {
       fs.rmSync(targetDir, { recursive: true, force: true });
