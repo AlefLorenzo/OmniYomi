@@ -21,7 +21,31 @@ function setProgress(active, text) {
   progressWrap.hidden = !active;
   progressText.textContent = text || '';
 }
-function applyUpdate(update) {\n  if (!update) return;\n  const title = $('update-title');\n  const message = $('update-message');\n  const button = $('install-update-button');\n  const progress = $('update-progress-wrap');\n  const percent = Math.max(0, Math.min(100, Number(update.percent) || 0));\n  $('update-version').textContent = 'v' + (update.currentVersion || '—');\n  button.hidden = update.state !== 'downloaded';\n  progress.hidden = update.state !== 'downloading';\n  $('update-progress-bar').style.width = percent + '%';\n  $('update-progress-text').textContent = 'Download: ' + percent + '%';\n  const states = {\n    idle: ['Atualizações automáticas ativadas', 'O OmniYomi verifica novas versões automaticamente.'],\n    checking: ['Verificando atualizações…', 'Consultando a versão mais recente publicada.'],\n    current: ['Aplicativo atualizado', 'Você já está usando a versão mais recente.'],\n    downloading: ['Nova versão encontrada', 'Versão ' + (update.version || '') + ' encontrada. Baixando em segundo plano.'],\n    downloaded: ['Atualização pronta', 'A versão ' + (update.version || '') + ' foi baixada. Reinicie para concluir a instalação.'],\n    unsupported: ['Atualização automática indisponível', 'A atualização automática funciona na versão instalada pelo instalador NSIS.'],\n    error: ['Não foi possível verificar', update.error || 'Verifique sua conexão e tente novamente.']\n  };\n  const state = states[update.state] || states.idle;\n  title.textContent = state[0];\n  message.textContent = state[1];\n}\n\nfunction applyState(state) {
+function applyUpdate(update) {
+  if (!update) return;
+  const title = $('update-title');
+  const message = $('update-message');
+  const button = $('install-update-button');
+  const progress = $('update-progress-wrap');
+  const percent = Math.max(0, Math.min(100, Number(update.percent) || 0));
+  $('update-version').textContent = 'v' + (update.currentVersion || '—');
+  button.hidden = update.state !== 'downloaded';
+  progress.hidden = update.state !== 'downloading';
+  $('update-progress-bar').style.width = percent + '%';
+  $('update-progress-text').textContent = 'Download: ' + percent + '%';
+  const states = {
+    idle: ['Atualizações automáticas ativadas', 'O OmniYomi verifica novas versões automaticamente.'],
+    checking: ['Verificando atualizações…', 'Consultando a versão mais recente publicada.'],
+    current: ['Aplicativo atualizado', 'Você já está usando a versão mais recente.'],
+    downloading: ['Nova versão encontrada', 'Versão ' + (update.version || '') + ' encontrada. Baixando em segundo plano.'],
+    downloaded: ['Atualização pronta', 'A versão ' + (update.version || '') + ' foi baixada. Reinicie para concluir a instalação.'],
+    unsupported: ['Atualização automática indisponível', 'A atualização automática funciona na versão instalada pelo instalador NSIS.'],
+    error: ['Não foi possível verificar', update.error || 'Verifique sua conexão e tente novamente.']
+  };
+  const state = states[update.state] || states.idle;
+  title.textContent = state[0];
+  message.textContent = state[1];
+}\n\nfunction applyState(state) {
   const online = state.state === 'online';
   const busy = state.state === 'starting' || state.state === 'stopping';
   $('status-title').innerHTML = online ? 'OmniYomi está<br><em>pronto para ler.</em>' :
@@ -42,7 +66,8 @@ async function initialize() {
   const state = await api.getState();
   applyState(state);
   $('data-path').textContent = state.dataDir || '';
-  (state.logs || []).forEach(addLog);\n  applyUpdate(state.update);
+  (state.logs || []).forEach(addLog);
+  applyUpdate(state.update);
 }
 startButton.addEventListener('click', async () => {
   startButton.disabled = true;
@@ -68,6 +93,16 @@ stopButton.addEventListener('click', async () => {
 $('data-button').addEventListener('click', () => api.openData());
 $('logs-button').addEventListener('click', () => api.openLogs());
 $('quit-button').addEventListener('click', () => api.quit());
-api.onStatus(applyState);\napi.onUpdate(applyUpdate);\n$('check-updates-button').addEventListener('click', async () => {\n  $('check-updates-button').textContent = 'Verificando…';\n  try { applyUpdate(await api.checkUpdates()); }\n  finally { $('check-updates-button').textContent = 'Verificar novamente'; }\n});\n$('install-update-button').addEventListener('click', async () => {\n  $('install-update-button').disabled = true;\n  $('install-update-button').textContent = 'Reiniciando…';\n  const result = await api.installUpdate();\n  if (!result.success) { $('install-update-button').disabled = false; $('install-update-button').textContent = 'Instalar e reiniciar'; addLog('[ATUALIZAÇÃO] ' + result.error); }\n});
+api.onStatus(applyState);
+api.onUpdate(applyUpdate);\n$('check-updates-button').addEventListener('click', async () => {
+  $('check-updates-button').textContent = 'Verificando…';
+  try { applyUpdate(await api.checkUpdates()); }
+  finally { $('check-updates-button').textContent = 'Verificar novamente'; }
+});\n$('install-update-button').addEventListener('click', async () => {
+  $('install-update-button').disabled = true;
+  $('install-update-button').textContent = 'Reiniciando…';
+  const result = await api.installUpdate();
+  if (!result.success) { $('install-update-button').disabled = false; $('install-update-button').textContent = 'Instalar e reiniciar'; addLog('[ATUALIZAÇÃO] ' + result.error); }
+});
 api.onLog(addLog);
 initialize().catch((error) => addLog('[ERRO] ' + error.message));
