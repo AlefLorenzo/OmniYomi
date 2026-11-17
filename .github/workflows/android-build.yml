@@ -192,6 +192,6 @@ jobs:
           files: |
             OmniYomi-*.apk
           draft: false
-          prerelease: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

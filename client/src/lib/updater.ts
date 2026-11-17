@@ -54,8 +54,7 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
       .filter((release: any) =>
         typeof release.tag_name === 'string' &&
         /^android-v\d+\.\d+\.\d+$/i.test(release.tag_name) &&
-        !release.draft &&
-        !release.prerelease
+        !release.draft
       )
       .sort((a: any, b: any) =>
         isNewerVersion(a.tag_name, b.tag_name) ? -1 :
