@@ -253,11 +253,18 @@ jobs:
           # Read raw bytes explicitly as UTF-8; never cast the response byte[] to string.
           $manifestContent = [System.IO.File]::ReadAllText($manifestPath, [System.Text.Encoding]::UTF8)
           if ([string]::IsNullOrWhiteSpace($manifestContent)) { throw "Published latest.yml is empty: $manifestUrl." }
+
           # Regression check: byte-oriented downloads must decode to YAML text before parsing.
           $sampleManifestPath = Join-Path $env:RUNNER_TEMP 'omniyomi-manifest-utf8-regression.yml'
-          [System.IO.File]::WriteAllBytes($sampleManifestPath, [System.Text.Encoding]::UTF8.GetBytes("version: 1.2.999`nfiles:`n"))
+          $sampleBytes = [System.Text.Encoding]::UTF8.GetBytes('version: 1.2.999' + [Environment]::NewLine)
+          [System.IO.File]::WriteAllBytes($sampleManifestPath, $sampleBytes)
           $sampleDecoded = [System.IO.File]::ReadAllText($sampleManifestPath, [System.Text.Encoding]::UTF8)
-          if ($sampleDecoded -notmatch '(?m)^version:[ \t]*1\.2\.999[ \t]*          # electron-builder YAML may quote scalar values; accept either representation.
+          if ($sampleDecoded -notlike 'version: 1.2.999*') {
+            throw 'UTF-8 byte-to-text regression check failed for latest.yml parsing.'
+          }
+          Remove-Item -LiteralPath $sampleManifestPath -Force
+
+          # Normalize an optional UTF-8 BOM and parse the top-level version line.
           $normalizedManifest = $manifestContent.TrimStart([char]0xFEFF)
           $versionMatch = [regex]::Match(
             $normalizedManifest,
