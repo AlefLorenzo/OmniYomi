@@ -30,7 +30,7 @@ function releaseVersion(tagName: unknown): string | null {
 function hasApkAsset(release: any): boolean {
   return Array.isArray(release?.assets) && release.assets.some((asset: any) =>
     typeof asset?.name === 'string' &&
-    asset.name.toLowerCase().endsWith('.apk') &&
+    /-release\\.apk$/i.test(asset.name) &&
     typeof asset.browser_download_url === 'string'
   );
 }
@@ -47,8 +47,8 @@ export function isNewerVersion(latest: string, current: string): boolean {
 }
 
 /**
- * Accept current android-vX.Y.Z and legacy vX.Y.Z tags only when they contain an APK.
- * Desktop releases without APK assets are ignored, including NSIS and portable builds.
+ * Accept Android/legacy tags only when they contain a signed release APK.
+ * Debug APKs are not update candidates because CI debug signing keys are ephemeral.
  */
 export async function checkForUpdate(): Promise<ReleaseInfo | null> {
   try {
@@ -80,11 +80,10 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
 
     const apkAssets = latest.assets.filter((asset: any) =>
       typeof asset.name === 'string' &&
-      asset.name.toLowerCase().endsWith('.apk') &&
+      /-release\\.apk$/i.test(asset.name) &&
       typeof asset.browser_download_url === 'string'
     );
-    // Prefer the signed release APK when it exists; use debug only as a fallback.
-    const apk = apkAssets.find((asset: any) => /-release\.apk$/i.test(asset.name)) || apkAssets[0];
+    const apk = apkAssets[0];
     if (!apk) return null;
 
     const version = latestEntry.version;
