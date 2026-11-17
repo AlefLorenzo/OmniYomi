@@ -73,7 +73,7 @@ const webSocketServer = setupWebSocket(server);
 const settings = db.getSettings();
 const PORT = Number(process.env.PORT || settings.port || 4567);
 const HOST = process.env.HOST || (process.env.OMNIYOMI_DESKTOP === '1' ? '127.0.0.1' : '0.0.0.0');
-let shuttingDown = false;
+let shutdownPromise: Promise<void> | null = null;
 
 function startServer(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -100,37 +100,40 @@ function startServer(): Promise<void> {
   });
 }
 
-async function shutdownServer(): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log('[OmniYomi] Encerramento seguro solicitado.');
+function shutdownServer(): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
 
-  libraryManager.stop();
-  const downloadsDrained = await downloadManager.shutdown();
-  await suwayomiService.stop();
+  shutdownPromise = (async () => {
+    console.log('[OmniYomi] Encerramento seguro solicitado.');
 
-  for (const socket of webSocketServer.clients) {
-    try { socket.terminate(); } catch { /* ignore closed sockets */ }
-  }
-  try { webSocketServer.close(); } catch { /* already closed */ }
+    libraryManager.stop();
+    const downloadsDrained = await downloadManager.shutdown();
+    await suwayomiService.stop();
 
-  if (server.listening) {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+    for (const socket of webSocketServer.clients) {
+      try { socket.terminate(); } catch { /* ignore closed sockets */ }
+    }
+    try { webSocketServer.close(); } catch { /* already closed */ }
 
-  if (!downloadsDrained) {
-    throw new Error('Ainda há downloads ativos após o prazo de encerramento. O backend não confirmará que o SQLite foi fechado com segurança.');
-  }
+    if (server.listening) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
 
-  try {
-    db.close();
-    console.log('[OmniYomi] Banco SQLite sincronizado e fechado.');
-    // The desktop launcher checks this marker before reporting a successful stop.
-    console.log('[OmniYomi] SHUTDOWN_COMPLETE: SQLite checkpoint e fechamento concluídos.');
-  } catch (error: any) {
-    console.error('[OmniYomi] Falha ao fechar o banco SQLite:', error?.message || error);
-    throw error;
-  }
+    if (!downloadsDrained) {
+      throw new Error('Ainda há downloads ativos após o prazo de encerramento. O backend não confirmará que o SQLite foi fechado com segurança.');
+    }
+
+    try {
+      db.close();
+      console.log('[OmniYomi] Banco SQLite sincronizado e fechado.');
+      console.log('[OmniYomi] SHUTDOWN_COMPLETE: SQLite checkpoint e fechamento concluídos.');
+    } catch (error: any) {
+      console.error('[OmniYomi] Falha ao fechar o banco SQLite:', error?.message || error);
+      throw error;
+    }
+  })();
+
+  return shutdownPromise;
 }
 
 function finishShutdown(): void {
@@ -162,18 +165,8 @@ if (process.env.OMNIYOMI_DESKTOP === '1' && process.stdin && !process.stdin.dest
   });
 }
 
-process.once('SIGTERM', () => {
-  void shutdownServer().then(() => process.exit(0)).catch((error) => {
-    console.error('[OmniYomi] Falha no encerramento:', error);
-    process.exit(1);
-  });
-});
-process.once('SIGINT', () => {
-  void shutdownServer().then(() => process.exit(0)).catch((error) => {
-    console.error('[OmniYomi] Falha no encerramento:', error);
-    process.exit(1);
-  });
-});
+process.once('SIGTERM', finishShutdown);
+process.once('SIGINT', finishShutdown);
 
 const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
 const isDirectExecution = Boolean(entryPath) && pathToFileURL(entryPath).href === import.meta.url;
