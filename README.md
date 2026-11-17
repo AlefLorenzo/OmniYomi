@@ -1,5 +1,18 @@
 # 📱 OmniYomi — Leitor & Gerenciador de Mangás, Manhwas e Manhuas
 
+<details open>
+<summary><strong>⬇️ BAIXAR OMNIYOMI DESKTOP PARA WINDOWS (64 BITS)</strong></summary>
+
+**[CLIQUE AQUI PARA BAIXAR O EXECUTÁVEL (.EXE)](https://github.com/AlefLorenzo/OmniYomi/actions/runs/44000431532)**
+
+Na página que abrir, desça até **Artifacts** e baixe **OmniYomi-Desktop-Windows-x64**. Extraia o ZIP e execute o instalador `.exe` (ou escolha a versão portátil, se incluída).
+
+Compatível com Windows 10/11 x64. O instalador mantém os dados do OmniYomi em `%LOCALAPPDATA%\OmniYomi\data`.
+
+</details>
+
+---
+
 O **OmniYomi** é uma plataforma completa e moderna de leitura, agregação e gerenciamento de mangás, manhwas e manhuas. Inspirado no ecossistema **Tachiyomi / Suwayomi / Keiyoushi**, o OmniYomi unifica um servidor de alta performance, catálogo com normalização precisa de títulos, leitura fluida e suporte completo ao aplicativo **Android (APK)** com sincronização e leitura offline.
 
 ---
