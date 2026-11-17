@@ -112,7 +112,7 @@ jobs:
             Select-Object -First 1
           if (-not $installedExe) { throw 'NSIS completed, but the OmniYomi application executable was not installed.' }
 
-          $updateConfig = Join-Path (Split-Path -Parent $installedExe.FullName) 'resources\\app-update.yml'
+          $updateConfig = Join-Path (Split-Path -Parent $installedExe.FullName) (Join-Path 'resources' 'app-update.yml')
           if (-not (Test-Path -LiteralPath $updateConfig)) { throw 'Packaged app-update.yml is missing; automatic updates are not configured in the installer.' }
           $updateConfigText = Get-Content -LiteralPath $updateConfig -Raw
           if ($updateConfigText -notmatch 'provider: github' -or $updateConfigText -notmatch 'owner: AlefLorenzo' -or $updateConfigText -notmatch 'repo: OmniYomi') {
