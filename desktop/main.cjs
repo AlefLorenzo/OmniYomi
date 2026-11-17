@@ -11,6 +11,7 @@ let launcherWindow = null;
 let appWindow = null;
 let backend = null;
 let backendOwned = false;
+let backendShutdownConfirmed = false;
 let serverPort = DEFAULT_PORT;
 let serverUrl = null;
 let quitting = false;
@@ -157,7 +158,13 @@ function attachBackendLogs(child) {
       buffer += chunk;
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || '';
-      for (const line of lines) if (line.trim()) log(level, line);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (level === 'SERVER' && line.includes('SHUTDOWN_COMPLETE: SQLite checkpoint')) {
+          backendShutdownConfirmed = true;
+        }
+        log(level, line);
+      }
     });
     stream.on('end', () => {
       if (buffer.trim()) log(level, buffer);
@@ -248,6 +255,7 @@ async function startBackendInternal() {
     detached: false
   });
   backendOwned = true;
+  backendShutdownConfirmed = false;
   const child = backend;
   attachBackendLogs(child);
   child.on('error', (error) => log('ERROR', 'Falha ao iniciar backend: ' + error.message));
@@ -283,17 +291,21 @@ function startBackend() {
 }
 
 function waitForExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.removeListener('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    const onExit = () => {
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
-      resolve(true);
+      child.removeListener('close', onClose);
+      resolve(value);
     };
-    child.once('exit', onExit);
+    const onClose = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    // Wait for "close", not only "exit": close confirms stdout/stderr were drained,
+    // so the SQLite shutdown marker cannot be missed due to pipe buffering.
+    child.once('close', onClose);
   });
 }
 
@@ -340,9 +352,20 @@ async function stopBackend() {
     return { success: false, error: 'O backend não confirmou o encerramento.' };
   }
 
+  if (!backendShutdownConfirmed || child.exitCode !== 0) {
+    const reason = !backendShutdownConfirmed
+      ? 'O backend encerrou sem confirmar o checkpoint e fechamento do SQLite.'
+      : 'O backend encerrou com código ' + child.exitCode + '.';
+    log('ERROR', reason);
+    if (backend === child) backend = null;
+    backendOwned = false;
+    setStatus('error', reason);
+    return { success: false, error: reason };
+  }
+
   if (backend === child) backend = null;
   backendOwned = false;
-  setStatus('stopped', 'Servidor encerrado.');
+  setStatus('stopped', 'Servidor encerrado e SQLite confirmado como fechado.');
   return { success: true };
 }
 

@@ -118,16 +118,18 @@ async function shutdownServer(): Promise<void> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  if (downloadsDrained) {
-    try {
-      db.close();
-      console.log('[OmniYomi] Banco SQLite sincronizado e fechado.');
-    } catch (error: any) {
-      console.error('[OmniYomi] Falha ao fechar o banco SQLite:', error?.message || error);
-      throw error;
-    }
-  } else {
-    console.error('[OmniYomi] Ainda há downloads ativos; o processo encerrará e o SQLite recuperará o WAL na próxima inicialização.');
+  if (!downloadsDrained) {
+    throw new Error('Ainda há downloads ativos após o prazo de encerramento. O backend não confirmará que o SQLite foi fechado com segurança.');
+  }
+
+  try {
+    db.close();
+    console.log('[OmniYomi] Banco SQLite sincronizado e fechado.');
+    // The desktop launcher checks this marker before reporting a successful stop.
+    console.log('[OmniYomi] SHUTDOWN_COMPLETE: SQLite checkpoint e fechamento concluídos.');
+  } catch (error: any) {
+    console.error('[OmniYomi] Falha ao fechar o banco SQLite:', error?.message || error);
+    throw error;
   }
 }
 
