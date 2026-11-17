@@ -484,25 +484,39 @@ export class ApkSourceAdapter extends BaseSource {
           }
 
           if (mangaId && chapterIndex) {
-            await suwayomiService.queryGql(`
-              mutation {
-                fetchChapterPages(input: {
-                  chapterId: ${suwayomiChapterId}
-                }) {
-                  clientMutationId
-                }
+            let pageCount = 0;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                await suwayomiService.queryGql(`
+                  mutation {
+                    fetchChapterPages(input: {
+                      chapterId: ${suwayomiChapterId}
+                    }) {
+                      clientMutationId
+                    }
+                  }
+                `);
+              } catch (error: any) {
+                const message = String(error?.message || error);
+                const isDecryptTimeout = /timed out decrypting image links|timeout|timed out/i.test(message);
+                if (attempt > 0 || !isDecryptTimeout) throw error;
+                console.warn(`[ApkSourceAdapter] Timeout ao descriptografar páginas do capítulo ${suwayomiChapterId}; repetindo uma vez.`);
+                await new Promise(resolve => setTimeout(resolve, 1200));
+                continue;
               }
-            `);
 
-            const q = await suwayomiService.queryGql(`
-              query {
-                chapter(id: ${suwayomiChapterId}) {
-                  pageCount
+              const q = await suwayomiService.queryGql(`
+                query {
+                  chapter(id: ${suwayomiChapterId}) {
+                    pageCount
+                  }
                 }
-              }
-            `);
+              `);
+              pageCount = q?.chapter?.pageCount || 0;
+              if (pageCount > 0) break;
+              if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 900));
+            }
 
-            const pageCount = q?.chapter?.pageCount || 0;
             if (pageCount > 0) {
               const pages: PageImage[] = [];
               for (let i = 0; i < pageCount; i++) {
