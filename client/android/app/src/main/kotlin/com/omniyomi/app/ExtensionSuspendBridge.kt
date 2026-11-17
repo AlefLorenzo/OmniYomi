@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -51,6 +52,31 @@ object ExtensionSuspendBridge {
     @JvmStatic
     fun pages(source: Source, chapter: SChapter): List<Page> =
         runBlocking(Dispatchers.IO) {
-            source.getPageList(chapter)
+            var lastError: Exception? = null
+            repeat(2) { attempt ->
+                try {
+                    return@runBlocking source.getPageList(chapter)
+                } catch (error: Exception) {
+                    lastError = error
+                    val messages = generateSequence(error as Throwable?) { it.cause }
+                        .mapNotNull { it.message }
+                        .joinToString(" ")
+                        .lowercase()
+                    val isTransientDecryptTimeout =
+                        messages.contains("timed out") ||
+                        messages.contains("timeout") ||
+                        messages.contains("decrypting image links")
+
+                    // Algumas extensões usam links temporários e falham durante a
+                    // descriptografia por oscilação de rede. Repetir uma única vez
+                    // evita deixar o capítulo inutilizável sem criar loop infinito.
+                    if (attempt == 0 && isTransientDecryptTimeout) {
+                        delay(1000)
+                    } else {
+                        throw error
+                    }
+                }
+            }
+            throw lastError ?: IllegalStateException("A extensão não retornou páginas.")
         }
 }
