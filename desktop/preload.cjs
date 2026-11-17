@@ -8,13 +8,15 @@ contextBridge.exposeInMainWorld('omniyomiDesktop', {
   openData: () => ipcRenderer.invoke('omniyomi:open-data'),
   openLogs: () => ipcRenderer.invoke('omniyomi:open-logs'),
   showLogFile: () => ipcRenderer.invoke('omniyomi:show-log-file'),
+  checkUpdates: () => ipcRenderer.invoke('omniyomi:check-updates'),
+  installUpdate: () => ipcRenderer.invoke('omniyomi:install-update'),
   quit: () => ipcRenderer.invoke('omniyomi:quit'),
   onStatus: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('omniyomi:status', listener);
     return () => ipcRenderer.removeListener('omniyomi:status', listener);
   },
-  onLog: (callback) => {
+  onUpdate: (callback) => {\n    const listener = (_event, value) => callback(value);\n    ipcRenderer.on('omniyomi:update', listener);\n    return () => ipcRenderer.removeListener('omniyomi:update', listener);\n  },\n  onLog: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('omniyomi:log', listener);
     return () => ipcRenderer.removeListener('omniyomi:log', listener);
