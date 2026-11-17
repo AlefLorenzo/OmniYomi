@@ -68,6 +68,36 @@ jobs:
       - name: Build NSIS installer and portable executable
         run: npm run desktop:dist
 
+      - name: Test silent NSIS installation and preserve existing user data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Resolve-Path 'release'
+          $installer = Get-ChildItem $release -Filter 'OmniYomi-Desktop-*-x64.exe' -File |
+            Where-Object { $_.Name -notmatch 'portable' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer not found.' }
+
+          $dataDir = Join-Path $env:LOCALAPPDATA 'OmniYomi\data'
+          New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+          $sentinel = Join-Path $dataDir 'ci-preserve-data-sentinel.txt'
+          Set-Content -LiteralPath $sentinel -Value 'preserve-existing-user-data' -Encoding UTF8
+
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS silent installer exited with code $($process.ExitCode)." }
+          if (-not (Test-Path $sentinel)) { throw 'The installer removed existing OmniYomi user data.' }
+
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $installedExe = Get-ChildItem -LiteralPath $programs -Filter '*.exe' -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'OmniYomi' -and $_.Name -notmatch 'Uninstall|Setup' } |
+            Select-Object -First 1
+          if (-not $installedExe) { throw 'NSIS completed, but the OmniYomi application executable was not installed.' }
+
+          Remove-Item -LiteralPath $sentinel -Force
+          Write-Host "Silent installation validated: $($installedExe.FullName)"
+          Write-Host 'Existing user data sentinel survived installation.'
+
       - name: Upload Windows executables
         uses: actions/upload-artifact@v4
         with:
