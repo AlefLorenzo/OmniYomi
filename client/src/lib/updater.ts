@@ -23,7 +23,7 @@ function versionParts(value: string): number[] {
 
 function releaseVersion(tagName: unknown): string | null {
   if (typeof tagName !== 'string') return null;
-  const match = tagName.match(/^(?:android-)?v?(\\d+\\.\\d+\\.\\d+)$/i);
+  const match = tagName.match(/^(?:android-)?v?(\d+\\.\d+\\.\d+)$/i);
   return match?.[1] || null;
 }
 
@@ -47,8 +47,8 @@ export function isNewerVersion(latest: string, current: string): boolean {
 }
 
 /**
- * Android updater: only Android-tagged releases with an actual APK are eligible.
- * Desktop NSIS/portable releases are intentionally ignored.
+ * Accept current android-vX.Y.Z and legacy vX.Y.Z tags only when they contain an APK.
+ * Desktop releases without APK assets are ignored, including NSIS and portable builds.
  */
 export async function checkForUpdate(): Promise<ReleaseInfo | null> {
   try {
