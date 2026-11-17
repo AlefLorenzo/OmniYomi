@@ -56,6 +56,8 @@ export function ReaderPage() {
     setLoading(true);
     setError(null);
     markedReadRef.current = false;
+    latestScrollRef.current = { page: 1, percent: 0 };
+    lastSavedProgressRef.current = '';
 
     try {
       // Load settings for default reader mode
@@ -381,19 +383,27 @@ export function ReaderPage() {
         </>
       )}
 
-      {/* Center click to toggle menu */}
-      <div
-        className="absolute top-0 bottom-0 left-1/3 right-1/3 z-[6] cursor-pointer"
-        onClick={() => setShowMenu(m => !m)}
-      />
+      {/* Center click navigation is only used in paged mode. In webtoon mode
+          this layer must not cover the scroll container or it steals wheel input. */}
+      {!isWebtoon && (
+        <div
+          className="absolute top-0 bottom-0 left-1/3 right-1/3 z-[6] cursor-pointer"
+          onClick={() => setShowMenu(m => !m)}
+        />
+      )}
 
       {/* CONTENT */}
       {isWebtoon ? (
         // Vertical webtoon mode - continuous scroll
         <div
           ref={containerRef}
-          className="flex-1 overflow-y-auto"
+          className="flex-1 overflow-y-auto overscroll-y-contain"
           onScroll={handleScroll}
+          onClick={(event) => {
+            const target = event.target as HTMLElement;
+            if (target.closest('button, a')) return;
+            setShowMenu(menu => !menu);
+          }}
         >
           <div className="flex flex-col items-center">
             {pages.map((page, idx) => {
