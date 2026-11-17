@@ -533,7 +533,8 @@ ipcMain.handle('omniyomi:install-update', () => {
   if (updateStatus.state !== 'downloaded') return { success: false, error: 'A atualização ainda não foi baixada.' };
   setImmediate(() => autoUpdater.quitAndInstall(false, true));
   return { success: true };
-});\nipcMain.handle('omniyomi:quit', () => app.quit());
+});
+ipcMain.handle('omniyomi:quit', () => app.quit());
 
 app.on('before-quit', (event) => {
   if (allowQuit) return;
