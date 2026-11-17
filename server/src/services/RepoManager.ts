@@ -535,7 +535,7 @@ export class RepoManager {
   }
 
   public async uninstallExtractedExtension(pkg: string): Promise<boolean> {
-    if (!/^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$/.test(pkg)) {
+    if (!/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/.test(pkg)) {
       throw new Error('Identificador de pacote inválido.');
     }
 
