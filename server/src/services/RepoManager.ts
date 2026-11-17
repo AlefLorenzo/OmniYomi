@@ -541,7 +541,11 @@ export class RepoManager {
 
     // Remove the extension from the runtime first. If this fails, keep the local
     // APK and extracted files so the UI never reports a half-uninstalled source.
-    if (await suwayomiService.isHealthy()) {
+    const runtimeReady = await suwayomiService.ensureRunning();
+    if (!runtimeReady) {
+      throw new Error('Não foi possível iniciar o runtime Suwayomi. A extensão foi mantida e não foi desinstalada.');
+    }
+    {
       await suwayomiService.queryGql(`
         mutation UninstallExtension($id: String!) {
           updateExtension(input: {
@@ -584,6 +588,7 @@ export class RepoManager {
     extensionManager.removeApkExtensionSources(pkg);
     this.cache.clear();
     return true;
-  }}
+  }
+}
 
 export const repoManager = new RepoManager();
