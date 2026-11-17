@@ -94,8 +94,22 @@ jobs:
             Select-Object -First 1
           if (-not $installedExe) { throw 'NSIS completed, but the OmniYomi application executable was not installed.' }
 
+          Write-Host "Running packaged desktop lifecycle smoke test: $($installedExe.FullName)"
+          $env:OMNIYOMI_SKIP_RUNTIME_SETUP = '1'
+          $env:OMNIYOMI_DISABLE_SUWAYOMI = '1'
+          try {
+            $packagedSmoke = Start-Process -FilePath $installedExe.FullName -ArgumentList @('--smoke-test') -WorkingDirectory (Split-Path -Parent $installedExe.FullName) -Wait -PassThru
+            if ($packagedSmoke.ExitCode -ne 0) {
+              throw "Packaged desktop smoke test failed with exit code $($packagedSmoke.ExitCode)."
+            }
+          } finally {
+            Remove-Item Env:OMNIYOMI_SKIP_RUNTIME_SETUP -ErrorAction SilentlyContinue
+            Remove-Item Env:OMNIYOMI_DISABLE_SUWAYOMI -ErrorAction SilentlyContinue
+          }
+
           Remove-Item -LiteralPath $sentinel -Force
           Write-Host "Silent installation validated: $($installedExe.FullName)"
+          Write-Host 'Packaged executable successfully started and stopped its managed backend.'
           Write-Host 'Existing user data sentinel survived installation.'
 
       - name: Upload Windows executables
