@@ -104,5 +104,8 @@
     "portable": {
       "artifactName": "OmniYomi-Desktop-${version}-portable-${arch}.${ext}"
     }
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

@@ -78,7 +78,7 @@ OmniYomi/
 ## 🚀 Como Executar Localmente
 
 ### Pré-requisitos
-- **Node.js** v20 ou superior
+- **Node.js** v22.12 ou superior (Node.js 24 recomendado)
 - **npm** v10 ou superior
 - **Java 17+** (caso utilize o runtime Suwayomi localmente)
 

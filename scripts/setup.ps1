@@ -27,7 +27,7 @@ if (-not $node) {
   Write-Host "[OmniYomi] Node.js não encontrado. Instalando Node.js LTS pelo WinGet..." -ForegroundColor Yellow
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if (-not $winget) {
-    throw "Node.js/WinGet não encontrados. Instale Node.js 20+ em https://nodejs.org/ e execute novamente."
+    throw "Node.js/WinGet não encontrados. Instale Node.js 22.12+ em https://nodejs.org/ e execute novamente."
   }
   & winget install --id OpenJS.NodeJS.LTS --exact --silent --accept-source-agreements --accept-package-agreements
   if ($LASTEXITCODE -ne 0) {
@@ -40,17 +40,22 @@ if (-not $node) {
   }
 }
 
-$majorText = (& node -p "process.versions.node.split('.')[0]")
-$major = [int]$majorText
-if ($major -lt 20) {
-  Write-Host "[OmniYomi] Atualizando Node.js LTS..." -ForegroundColor Yellow
+$nodeVersionText = (& node -p "process.versions.node" -ErrorAction Stop).Trim()
+$nodeVersion = [version](($nodeVersionText -split "-")[0])
+if ($nodeVersion -lt [version]"22.12.0") {
+  Write-Host "[OmniYomi] Node.js $nodeVersionText é antigo. Atualizando para Node.js LTS..." -ForegroundColor Yellow
   $winget = Get-Command winget -ErrorAction SilentlyContinue
-  if (-not $winget) { throw "Node.js 20+ é necessário. Atualize pelo site https://nodejs.org/." }
+  if (-not $winget) { throw "Node.js 22.12+ é necessário. Atualize pelo site https://nodejs.org/." }
   & winget upgrade --id OpenJS.NodeJS.LTS --exact --silent --accept-source-agreements --accept-package-agreements
-  if ($LASTEXITCODE -ne 0) { throw "Não foi possível atualizar Node.js automaticamente." }
+  if ($LASTEXITCODE -ne 0) {
+    throw "O WinGet não conseguiu atualizar Node.js. Instale Node.js LTS 22.12+ em https://nodejs.org/ e execute novamente."
+  }
   Refresh-NodePath
-  $major = [int](& node -p "process.versions.node.split('.')[0]")
-  if ($major -lt 20) { throw "Reinicie o PowerShell para carregar a versão atualizada do Node.js." }
+  $nodeVersionText = (& node -p "process.versions.node").Trim()
+  $nodeVersion = [version](($nodeVersionText -split "-")[0])
+  if ($nodeVersion -lt [version]"22.12.0") {
+    throw "A sessão ainda está usando Node.js $nodeVersionText. Feche e reabra o PowerShell após atualizar Node.js."
+  }
 }
 
 $nodeArgs = @((Join-Path $PSScriptRoot "setup.mjs"))

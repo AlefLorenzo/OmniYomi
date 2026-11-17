@@ -31,9 +31,9 @@ function runNpm(args, cwd) {
 }
 
 function nodeCheck() {
-  const major = Number.parseInt(process.versions.node.split('.')[0], 10);
-  if (!Number.isFinite(major) || major < 20) {
-    throw new Error('Node.js 20+ é necessário. Execute scripts/setup.ps1 para instalar ou atualizar automaticamente.');
+  const [major, minor] = process.versions.node.split('.').map((part) => Number.parseInt(part, 10));
+  if (!Number.isFinite(major) || major < 22 || (major === 22 && minor < 12)) {
+    throw new Error('Node.js 22.12+ é necessário. Execute scripts/setup.ps1 para instalar ou atualizar automaticamente.');
   }
   log('Node.js ' + process.versions.node + ' detectado.');
 }
