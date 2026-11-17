@@ -76,24 +76,25 @@ export function ReaderPage() {
       setTotalPages(pageData.totalPages || pageData.pages?.length || 0);
       setIsOffline(Boolean(pageData.isOffline));
 
-      // Try to load chapter info + sibling chapters
-      if (mangaId) {
-        const [chList, history] = await Promise.all([
-          api.getChapters(mangaId, effectiveSourceId).catch(() => []),
-          api.getHistory(100).catch(() => []),
-        ]);
-        setChapters(chList || []);
-        const thisChapter = chList?.find((c: any) => c.id === id);
-        setChapter(thisChapter || null);
+      // O histórico também é consultado quando uma obra antiga não tem mangaId salvo.
+      const history = await api.getHistory(100).catch(() => []);
+      const historyEntry = history.find((item: any) => String(item.chapterId) === id);
 
-        // O progresso salvo no histórico é a fonte persistente para obras/extensões
-        // que não retornam lastPageRead na lista recém-consultada.
-        const historyEntry = history.find((item: any) => String(item.chapterId) === id);
-        const savedPage = Number(thisChapter?.lastPageRead || historyEntry?.page || 1);
-        if (savedPage > 1) {
-          setCurrentPage(savedPage);
-          setRestorePage(savedPage);
-        }
+      // Try to load chapter info + sibling chapters
+      let thisChapter: any = null;
+      if (mangaId) {
+        const chList = await api.getChapters(mangaId, effectiveSourceId).catch(() => []);
+        setChapters(chList || []);
+        thisChapter = chList?.find((c: any) => c.id === id) || null;
+        setChapter(thisChapter);
+      }
+
+      // O progresso salvo no histórico é a fonte persistente para extensões
+      // que não retornam lastPageRead na lista recém-consultada.
+      const savedPage = Number(thisChapter?.lastPageRead || historyEntry?.page || 1);
+      if (savedPage > 1) {
+        setCurrentPage(savedPage);
+        setRestorePage(savedPage);
       }
     } catch (e: any) {
       setError(e.message);
