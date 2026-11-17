@@ -219,7 +219,7 @@ Consulte [desktop/README.md](desktop/README.md) para detalhes do ciclo de vida e
 Abra o PowerShell e cole esta única linha:
 
 \`\`\`powershell
-irm https://raw.githubusercontent.com/AlefLorenzo/OmniYomi/feature/windows-desktop-launcher/scripts/install-windows.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/AlefLorenzo/OmniYomi/feature/windows-desktop-launcher/scripts/install-windows.ps1 | iex
 \`\`\`
 
 O instalador baixa a branch do Desktop, preserva a pasta de dados em \`%LOCALAPPDATA%\\OmniYomi\\data\`, verifica/instala Node.js, dependências e runtime Suwayomi, compila o instalador NSIS, instala o aplicativo e tenta abri-lo. Dependências e runtime válidos são reaproveitados.
