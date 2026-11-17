@@ -33,8 +33,8 @@ async function main() {
   if (repoExtensions.length === 0) throw new Error('O parser não retornou extensões do índice Keiyoushi.');
   const validExtensions = repoExtensions.filter((extension) =>
     extension.isCompatible &&
-    /^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$/.test(extension.pkg) &&
-    /^https:\\/\\//i.test(extension.apkUrl) &&
+    /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/.test(extension.pkg) &&
+    /^https:\/\//i.test(extension.apkUrl) &&
     extension.sources.length > 0
   );
   if (validExtensions.length === 0) {
