@@ -20,7 +20,8 @@ contextBridge.exposeInMainWorld('omniyomiDesktop', {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('omniyomi:update', listener);
     return () => ipcRenderer.removeListener('omniyomi:update', listener);
-  },\n  onLog: (callback) => {
+  },
+  onLog: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('omniyomi:log', listener);
     return () => ipcRenderer.removeListener('omniyomi:log', listener);
