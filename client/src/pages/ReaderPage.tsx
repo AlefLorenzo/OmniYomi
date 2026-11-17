@@ -42,6 +42,10 @@ export function ReaderPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLImageElement | null)[]>([]);
   const markedReadRef = useRef(false);
+  const scrollFrameRef = useRef<number | null>(null);
+  const progressSaveTimerRef = useRef<number | null>(null);
+  const latestScrollRef = useRef({ page: 1, percent: 0 });
+  const lastSavedProgressRef = useRef('');
 
   useEffect(() => {
     if (!id) return;
@@ -96,37 +100,93 @@ export function ReaderPage() {
     }
   }
 
-  // Track scroll position in webtoon mode
+  // Track the current webtoon page with IntersectionObserver instead of
+  // measuring every image on every wheel event.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || readerMode !== 'vertical_webtoon' || loading) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+      if (!visible) return;
+      const index = Number((visible.target as HTMLElement).dataset.pageIndex || '1');
+      if (!Number.isFinite(index) || index < 1) return;
+
+      latestScrollRef.current.page = index;
+      setCurrentPage((previous) => previous === index ? previous : index);
+    }, {
+      root: container,
+      rootMargin: '-22% 0px -58% 0px',
+      threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+    });
+
+    pageRefs.current.forEach((image) => {
+      if (image) observer.observe(image);
+    });
+
+    return () => observer.disconnect();
+  }, [pages, readerMode, loading]);
+
+  // Coalesce wheel/touch events to one animation frame and persist progress
+  // only after scrolling settles, avoiding a request per mouse-wheel tick.
   const handleScroll = useCallback(() => {
     if (readerMode !== 'vertical_webtoon') return;
-    if (!containerRef.current) return;
-
     const container = containerRef.current;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const scrollPercent = ((scrollTop + clientHeight) / scrollHeight) * 100;
+    if (!container || scrollFrameRef.current !== null) return;
 
-    // Determine current visible page by checking image positions
-    let visiblePage = 1;
-    for (let i = 0; i < pageRefs.current.length; i++) {
-      const img = pageRefs.current[i];
-      if (!img) continue;
-      const rect = img.getBoundingClientRect();
-      if (rect.top <= clientHeight * 0.5) {
-        visiblePage = i + 1;
-      }
-    }
-    setCurrentPage(visiblePage);
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const current = containerRef.current;
+      if (!current) return;
 
-    // Auto-save progress
-    if (totalPages > 0) {
-      api.updateProgress(id, visiblePage, totalPages, scrollPercent >= autoMarkPercent)
-        .catch(() => {});
+      const maxScroll = Math.max(0, current.scrollHeight - current.clientHeight);
+      const percent = maxScroll > 0
+        ? Math.min(100, Math.max(0, (current.scrollTop / maxScroll) * 100))
+        : 100;
 
-      if (scrollPercent >= autoMarkPercent && !markedReadRef.current) {
+      latestScrollRef.current.percent = percent;
+      if (percent >= autoMarkPercent && !markedReadRef.current) {
         markedReadRef.current = true;
       }
-    }
+
+      if (totalPages > 0) {
+        if (progressSaveTimerRef.current !== null) {
+          window.clearTimeout(progressSaveTimerRef.current);
+        }
+        progressSaveTimerRef.current = window.setTimeout(() => {
+          progressSaveTimerRef.current = null;
+          const latest = latestScrollRef.current;
+          const progressKey = id + ':' + latest.page + ':' + Math.round(latest.percent);
+          if (lastSavedProgressRef.current === progressKey) return;
+          lastSavedProgressRef.current = progressKey;
+          api.updateProgress(
+            id,
+            latest.page,
+            totalPages,
+            latest.percent >= autoMarkPercent,
+          ).catch(() => {
+            lastSavedProgressRef.current = '';
+          });
+        }, 500);
+      }
+    });
   }, [readerMode, id, totalPages, autoMarkPercent]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+      if (progressSaveTimerRef.current !== null) {
+        window.clearTimeout(progressSaveTimerRef.current);
+        progressSaveTimerRef.current = null;
+      }
+    };
+  }, [id]);
 
   // For paged mode: save progress when page changes
   useEffect(() => {
@@ -342,6 +402,7 @@ export function ReaderPage() {
               return (
                 <img
                   key={pIdx}
+                  data-page-index={idx + 1}
                   ref={el => { pageRefs.current[idx] = el; }}
                   src={resolveApiUrl(pUrl)}
                   alt={`Página ${pIdx}`}
