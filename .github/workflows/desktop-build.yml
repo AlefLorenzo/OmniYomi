@@ -201,4 +201,38 @@ jobs:
           $assets += Get-ChildItem $release -Filter '*.blockmap' -File | ForEach-Object { $_.FullName }
           gh release create $tag @assets --title "OmniYomi Desktop v$version" --notes "Versão estável do OmniYomi Desktop v$version. Atualização automática pelo launcher NSIS." --target $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed for $tag." }
-          Write-Host "Stable desktop release $tag published with NSIS installer and update manifest."
+
+          # Verify the published release itself, not only the local build output.
+          $publishedAssets = @(gh release view $tag --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect published release $tag." }
+          if ($publishedAssets -notcontains 'latest.yml') {
+            throw "Published release $tag is missing latest.yml."
+          }
+          if ($publishedAssets -notcontains $installer.Name) {
+            throw "Published release $tag is missing installer $($installer.Name)."
+          }
+
+          $manifestUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/latest.yml"
+          $manifestContent = $null
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            try {
+              $response = Invoke-WebRequest -Uri $manifestUrl -Headers @{ 'Cache-Control' = 'no-cache' } -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                $manifestContent = [string]$response.Content
+                break
+              }
+            } catch {
+              if ($attempt -eq 6) { throw "Published latest.yml is not reachable (attempt $attempt): $($_.Exception.Message)" }
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $manifestContent) { throw "Published latest.yml could not be downloaded from $manifestUrl." }
+          if ($manifestContent -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
+            throw "Published latest.yml does not declare expected version $version."
+          }
+          if ($manifestContent -notmatch '(?m)^sha512:\s*\S+' -and $manifestContent -notmatch '(?m)^\s+sha512:\s*\S+') {
+            throw 'Published latest.yml does not contain a SHA-512 checksum.'
+          }
+
+          Write-Host "Stable desktop release $tag published and remotely verified."
+          Write-Host "Verified update manifest: $manifestUrl"
