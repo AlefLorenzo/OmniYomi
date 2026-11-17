@@ -400,8 +400,19 @@ export function SourcesPage() {
                     {ext.isExtracted || ext.isInstalled ? (
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-green-400 flex items-center gap-1 px-2.5 py-1 bg-green-950/60 border border-green-700/40 rounded-lg">
-                          <CheckCircle size={12} /> {ext.updateAvailable ? 'Atualizar' : 'Instalada'}
+                          <CheckCircle size={12} /> Instalada
                         </span>
+                        {ext.updateAvailable && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleExtractApk(ext)}
+                            loading={extractingPkgs.has(ext.pkg)}
+                            disabled={ext.isCompatible === false || !ext.apkUrl}
+                          >
+                            <Download size={13} /> Atualizar
+                          </Button>
+                        )}
                         <button
                           onClick={() => handleUninstallExtracted(ext.pkg)}
                           className="p-1.5 text-gray-500 hover:text-red-400 transition-colors"

@@ -57,12 +57,18 @@ export class RepoManager {
               timeout: 30000,
               headers: { 'User-Agent': 'OmniYomi-Mihon-Extension-Store/1.1' },
             });
-            extensions = decodeProtobufExtensionList(
-              Buffer.from(listResponse.data),
-              url,
-              decoded.name,
-              decoded.signingKey,
-            );
+            const listBuffer = Buffer.from(listResponse.data);
+            const firstByte = listBuffer.toString('utf8').trimStart()[0];
+            if (firstByte === '{') {
+              const listJson = JSON.parse(listBuffer.toString('utf8'));
+              extensions = this.parseModernJson({
+                name: decoded.name,
+                signingKey: decoded.signingKey,
+                extensionList: listJson.extensionList || listJson,
+              }, url, extractedPkgs);
+            } else {
+              extensions = decodeProtobufExtensionList(listBuffer, url, decoded.name, decoded.signingKey);
+            }
           }
         } else {
           const response = await axios.get(url, {
