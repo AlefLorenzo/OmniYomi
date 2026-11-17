@@ -40,7 +40,7 @@ if (-not $node) {
   }
 }
 
-$nodeVersionText = (& node -p "process.versions.node" -ErrorAction Stop).Trim()
+$nodeVersionText = (& node -p "process.versions.node").Trim()
 $nodeVersion = [version](($nodeVersionText -split "-")[0])
 if ($nodeVersion -lt [version]"22.12.0") {
   Write-Host "[OmniYomi] Node.js $nodeVersionText é antigo. Atualizando para Node.js LTS..." -ForegroundColor Yellow

@@ -31,6 +31,18 @@ jobs:
       - name: Install client dependencies
         run: npm --prefix client install
 
+      - name: Validate setup scripts
+        shell: pwsh
+        run: |
+          node --check scripts/runtime-manager.cjs
+          node --check scripts/setup.mjs
+          node --check scripts/sync-extensions.mjs
+          node --check scripts/install-extensions.mjs
+
+      - name: Test idempotent Windows setup command
+        shell: pwsh
+        run: ./scripts/setup.ps1 -SkipRuntime -SkipBuild
+
       - name: Run desktop backend lifecycle smoke test
         run: npm run desktop:smoke
         env:
