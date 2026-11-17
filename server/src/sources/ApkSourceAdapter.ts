@@ -405,7 +405,6 @@ export class ApkSourceAdapter extends BaseSource {
       } catch (e: any) {
         console.warn(`[ApkSourceAdapter] getChapterList Suwayomi falhou:`, e.message);
       }
-      }
     }
 
     if (this.isSuwayomiBridge) {
