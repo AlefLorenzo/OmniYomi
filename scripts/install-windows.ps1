@@ -76,7 +76,6 @@ try {
   if (Test-Path $sourceRoot) {
     Write-Step "Preservando dependências locais e atualizando os arquivos do projeto"
     if (Test-Path (Join-Path $sourceRoot "node_modules")) {
-      New-Item -ItemType Directory -Path (Join-Path $extracted.FullName "node_modules") -Force | Out-Null
       Move-Item (Join-Path $sourceRoot "node_modules") (Join-Path $extracted.FullName "node_modules") -Force
     }
     if ((Test-Path (Join-Path $sourceRoot "client\node_modules")) -and
