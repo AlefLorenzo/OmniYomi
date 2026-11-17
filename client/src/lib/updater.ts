@@ -76,7 +76,7 @@ export async function checkForUpdate(): Promise<ReleaseInfo | null> {
       typeof asset.browser_download_url === 'string'
     );
     // Prefer the signed release APK when it exists; use debug only as a fallback.
-    const apk = apkAssets.find((asset: any) => /-release\\.apk$/i.test(asset.name)) || apkAssets[0];
+    const apk = apkAssets.find((asset: any) => /-release\.apk$/i.test(asset.name)) || apkAssets[0];
     if (!apk) return null;
 
     const version = latest.tag_name.replace(/^android-v/i, '');
