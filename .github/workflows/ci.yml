@@ -1,14 +1,14 @@
 name: CI - Build & Test
 
 on:
-
-concurrency:
-  group: omniyomi-ci-${{ github.ref }}
-  cancel-in-progress: true
   push:
     branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
+
+concurrency:
+  group: omniyomi-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
