@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-desktop:
@@ -18,6 +18,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Assign a unique monotonically increasing desktop release version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        run: |
+          $version = '1.1.${{ github.run_number }}'
+          npm version $version --no-git-tag-version --allow-same-version
+          Write-Host "Publishing OmniYomi Desktop version $version"
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
@@ -123,3 +131,10 @@ jobs:
             release/*.blockmap
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish tested Windows desktop update to GitHub Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win nsis --x64 --publish always
