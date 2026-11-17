@@ -366,6 +366,9 @@ export class ExtensionManager {
   }
 
   public uninstallExtension(id: string): boolean {
+    if (!/^[a-zA-Z0-9._-]+$/.test(id) || id.includes('..')) {
+      throw new Error('Identificador de fonte inválido.');
+    }
     if (id === 'mangadex' || id === 'local') {
       throw new Error('Fontes do sistema não podem ser desinstaladas. Você pode desativá-las.');
     }
